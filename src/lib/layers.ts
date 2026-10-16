@@ -49,19 +49,21 @@ const TITIK_FIELDS: DbfField[] = [
 ]
 
 /**
- * Skema atribut TAPAK PROYEK — Panduan Tapak Proyek v2.5 (Juli 2024).
- * SENGAJA BERBEDA dari layer lain: id + 6 field teks (255), TANPA KODE
- * dan TANPA TIPE_DOKUM. LUAS = virtual field QGIS ($area/10000, ha) dan
- * tidak disimpan ke SHP. Urutan field mengikuti panduan.
+ * Skema atribut TAPAK PROYEK — BYTE-IDENTIK dengan template SHP tapak yang
+ * diunduh dari amdalnet (tapak-proyek.*). 8 field, urutan persis:
+ * id N(10,0), PEMRAKARSA C(80), KEGIATAN C(254), TAHUN C(254),
+ * PROVINSI C(254), KETERANGAN C(254), LAYER C(254), LUAS N(24,15, hektar).
+ * LUAS = luas ellipsoidal WGS84 (sama dengan QGIS $area), DISIMPAN ke DBF.
  */
 const TAPAK_FIELDS: DbfField[] = [
   { name: 'id', type: 'N', length: 10, decimals: 0 },
-  { name: 'PEMRAKARSA', type: 'C', length: 255, decimals: 0 },
-  { name: 'KEGIATAN', type: 'C', length: 255, decimals: 0 },
-  { name: 'TAHUN', type: 'C', length: 255, decimals: 0 },
-  { name: 'PROVINSI', type: 'C', length: 255, decimals: 0 },
-  { name: 'LAYER', type: 'C', length: 255, decimals: 0 },
-  { name: 'KETERANGAN', type: 'C', length: 255, decimals: 0 },
+  { name: 'PEMRAKARSA', type: 'C', length: 80, decimals: 0 },
+  { name: 'KEGIATAN', type: 'C', length: 254, decimals: 0 },
+  { name: 'TAHUN', type: 'C', length: 254, decimals: 0 },
+  { name: 'PROVINSI', type: 'C', length: 254, decimals: 0 },
+  { name: 'KETERANGAN', type: 'C', length: 254, decimals: 0 },
+  { name: 'LAYER', type: 'C', length: 254, decimals: 0 },
+  { name: 'LUAS', type: 'N', length: 24, decimals: 15 },
 ]
 
 const AREA_FIELDS: DbfField[] = [
@@ -144,18 +146,16 @@ export const LAYERS: LayerDef[] = [
   },
   {
     key: 'tapak',
-    fileName: 'TAPAK PROYEK',
+    fileName: 'tapak-proyek',
     folder: 'tapak_proyek',
     label: 'Tapak Proyek',
     kind: 'area',
     geometry: 'polygon',
     slot: 'Peta Tapak Proyek',
     fields: TAPAK_FIELDS,
-    // Panduan Tapak Proyek v2.5 (Juli 2024): nama file HURUF KAPITAL semua,
-    // atribut LAYER diisi teks "Tapak Proyek". Skema atribut tapak SENGAJA
-    // berbeda dari layer lain (7 field, tanpa KODE & TIPE_DOKUM) dan geometri
-    // ditulis sebagai plain Polygon dalam DERAJAT (EPSG:4326) — bukan
-    // PolygonZ Web Mercator seperti layer Area. Lihat src/lib/shp.ts.
+    // Template SHP tapak dari amdalnet (tapak-proyek.*): nama file huruf
+    // kecil, atribut LAYER = "Tapak Proyek". Skema & geometri (plain Polygon
+    // derajat EPSG:4326) byte-identik template. Lihat src/lib/shp.ts.
     layerJuknis: 'Tapak Proyek',
     color: '#7c3aed',
     fill: 'rgba(124,58,237,0.10)',

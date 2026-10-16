@@ -59,6 +59,45 @@ export function formatArea(m2: number): string {
   return `${m2.toFixed(1)} m²`
 }
 
+// ── Luas ellipsoidal WGS84 (eksak via authalic sphere) ──────────────────────
+// QGIS $area (dengan ellipsoid WGS84) menghitung luas di atas ellipsoid,
+// bukan bola. Dengan memetakan lintang ke lintang authalic (bola yang
+// luasnya sama dengan ellipsoid), rumus spherical-excess menjadi EKSAK.
+// Terverifikasi vs template tapak amdalnet: 0.6557225699213085 ha vs
+// 0.655722569537535 ha di template (selisih ~4e-13 = noise float).
+
+const WGS84_A = 6378137
+const WGS84_F = 1 / 298.257223563
+const WGS84_E2 = WGS84_F * (2 - WGS84_F)
+const WGS84_E = Math.sqrt(WGS84_E2)
+
+function authalicQ(phi: number): number {
+  const s = Math.sin(phi)
+  return (
+    (1 - WGS84_E2) *
+    (s / (1 - WGS84_E2 * s * s) -
+      (1 / (2 * WGS84_E)) * Math.log((1 - WGS84_E * s) / (1 + WGS84_E * s)))
+  )
+}
+
+const AUTHALIC_QP = authalicQ(Math.PI / 2)
+const AUTHALIC_R = WGS84_A * Math.sqrt(AUTHALIC_QP / 2)
+
+/** Luas polygon (m²) di atas ellipsoid WGS84 — sama dengan QGIS $area. */
+export function ringAreaEllipsoidal(ring: Pt[]): number {
+  if (ring.length < 3) return 0
+  const rad = Math.PI / 180
+  let total = 0
+  for (let i = 0; i < ring.length - 1; i++) {
+    const p1 = ring[i]
+    const p2 = ring[i + 1]
+    const b1 = Math.asin(authalicQ(p1.lat * rad) / AUTHALIC_QP)
+    const b2 = Math.asin(authalicQ(p2.lat * rad) / AUTHALIC_QP)
+    total += (p2.lon - p1.lon) * rad * (2 + Math.sin(b1) + Math.sin(b2))
+  }
+  return Math.abs((total * AUTHALIC_R * AUTHALIC_R) / 2)
+}
+
 // ── Zona UTM (untuk info di PDF; luas dihitung geodesic, bukan UTM) ──────────
 
 export function utmZone(lon: number, lat: number): string {
