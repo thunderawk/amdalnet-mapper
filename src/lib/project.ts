@@ -6,7 +6,7 @@ import type { Geom, Pt } from './geo'
 import { LAYERS, LAYER_BY_KEY } from './layers'
 import type { LayerKey } from './layers'
 import type { AttrRecord } from './shp'
-import { ringArea } from './geo'
+import { ringArea, ringAreaEllipsoidal } from './geo'
 
 export const PROJECT_VERSION = 1
 
@@ -90,8 +90,8 @@ export function effectiveLayerAttr(layer: LayerKey): string {
 /**
  * Atribut untuk satu fitur.
  * Layer biasa: 9 field (profil + kode/keterangan).
- * Tapak Proyek: 7 field sesuai Panduan v2.5 — TANPA KODE & TIPE_DOKUM,
- * TAHUN ditulis sebagai teks.
+ * Tapak Proyek: 8 field byte-identik template amdalnet — TANPA KODE &
+ * TIPE_DOKUM, dengan KETERANGAN dan LUAS (hektar, ellipsoidal WGS84).
  */
 export function attrsForFeature(
   project: Project,
@@ -104,8 +104,9 @@ export function attrsForFeature(
       KEGIATAN: project.kegiatan,
       TAHUN: project.tahun === '' ? '' : String(project.tahun),
       PROVINSI: project.provinsi,
-      LAYER: effectiveLayerAttr(feature.layer),
       KETERANGAN: feature.keterangan,
+      LAYER: effectiveLayerAttr(feature.layer),
+      LUAS: featureArea(feature) / 10000,
     }
   }
   return {
@@ -334,7 +335,12 @@ export function centroid(ring: Pt[]): Pt {
 }
 
 export function featureArea(f: Feature): number {
-  return f.geom.type === 'Polygon' ? ringArea(f.geom.ring) : 0
+  if (f.geom.type !== 'Polygon') return 0
+  // Tapak: luas ellipsoidal WGS84 (= QGIS $area) agar field LUAS di DBF
+  // sama dengan hitungan template amdalnet.
+  return f.layer === 'tapak'
+    ? ringAreaEllipsoidal(f.geom.ring)
+    : ringArea(f.geom.ring)
 }
 
 export function allFeaturesArea(project: Project, layer: LayerKey): number {

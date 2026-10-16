@@ -45,7 +45,7 @@ Proyek autosave di browser (indikator "Tersimpan otomatis"); tombol
 | Geometri .shp | lon/lat derajat | **meter Web Mercator** (EPSG:3857) | lon/lat derajat |
 | Shape type | POINT (1) | **POLYGONZ (15, Z=0)** | POLYGON (5) |
 | .prj | EPSG:4326 GEOGCS WGS84 (145B, byte-identik template) | Web Mercator (425B, byte-identik template) | EPSG:4326 GEOGCS WGS84 |
-| Skema DBF | 9 field; PEMRAKARSA C50, KEGIATAN C50 | 9 field; PEMRAKARSA C100, KEGIATAN C254 | **7 field** (id + 6× C255, tanpa KODE & TIPE_DOKUM) |
+| Skema DBF | 9 field; PEMRAKARSA C50, KEGIATAN C50 | 9 field; PEMRAKARSA C100, KEGIATAN C254 | **8 field**; PEMRAKARSA C80, LUAS N(24,15) |
 | LAYER | "Titik Pemantauan" / "Titik Pengelolaan" | "Area Pemantauan" / "Area Pengelolaan" | "Tapak Proyek" |
 | TIPE_DOKUM | "Amdal" / "UKL-UPL" (di-enforce) | sama | — (tidak ada) |
 
@@ -55,7 +55,7 @@ ditulis ke SHP (virtual field QGIS: `$area/10000` = hektar); luas
 ditampilkan di aplikasi dalam hektar.
 
 Nilai LAYER selalu mengikuti JUKNIS resmi (daftarnya tampil di panel Profil).
-Nama file ZIP/DBF huruf kapital semua (mis. `TAPAK PROYEK.zip`).
+Nama file ZIP/DBF tapak mengikuti template: `tapak-proyek.zip` (huruf kecil).
 Ukuran halaman PDF peta: **679 × 401 pt** persis contoh peta tapak
 (QGIS), citra peta full-bleed tanpa kop/legenda.
 
