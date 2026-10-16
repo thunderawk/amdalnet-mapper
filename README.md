@@ -40,18 +40,24 @@ Proyek autosave di browser (indikator "Tersimpan otomatis"); tombol
 
 ## Spesifikasi teknis (terverifikasi vs template asli amdalnet)
 
-| Aspek | Titik Pantau/Kelola | Area Pantau/Kelola/Tapak |
-|---|---|---|
-| Geometri .shp | lon/lat derajat | **meter Web Mercator** (EPSG:3857) |
-| Shape type | POINT (1) | **POLYGONZ (15, Z=0)** |
-| .prj | EPSG:4326 GEOGCS WGS84 (145B, byte-identik template) | Web Mercator (425B, byte-identik template) |
-| Skema DBF | 9 field; PEMRAKARSA C50, KEGIATAN C50 | 9 field; PEMRAKARSA C100, KEGIATAN C254 |
-| LAYER | "Titik Pemantauan" / "Titik Pengelolaan" | "Area Pemantauan" / "Area Pengelolaan" / "Tapak Proyek" |
-| TIPE_DOKUM | "Amdal" / "UKL-UPL" (di-enforce) | sama |
+| Aspek | Titik Pantau/Kelola | Area Pantau/Kelola | Tapak Proyek |
+|---|---|---|---|
+| Geometri .shp | lon/lat derajat | **meter Web Mercator** (EPSG:3857) | lon/lat derajat |
+| Shape type | POINT (1) | **POLYGONZ (15, Z=0)** | POLYGON (5) |
+| .prj | EPSG:4326 GEOGCS WGS84 (145B, byte-identik template) | Web Mercator (425B, byte-identik template) | EPSG:4326 GEOGCS WGS84 |
+| Skema DBF | 9 field; PEMRAKARSA C50, KEGIATAN C50 | 9 field; PEMRAKARSA C100, KEGIATAN C254 | **7 field** (id + 6× C255, tanpa KODE & TIPE_DOKUM) |
+| LAYER | "Titik Pemantauan" / "Titik Pengelolaan" | "Area Pemantauan" / "Area Pengelolaan" | "Tapak Proyek" |
+| TIPE_DOKUM | "Amdal" / "UKL-UPL" (di-enforce) | sama | — (tidak ada) |
+
+Skema & geometri Tapak Proyek mengikuti **Panduan Pembuatan Peta Polygon
+v2.5 (Juli 2024)** — sengaja berbeda dari layer Area. Field LUAS tidak
+ditulis ke SHP (virtual field QGIS: `$area/10000` = hektar); luas
+ditampilkan di aplikasi dalam hektar.
 
 Nilai LAYER selalu mengikuti JUKNIS resmi (daftarnya tampil di panel Profil).
-Nama file ZIP/DBF huruf kapital semua (mis. `TAPAK PROYEK.zip`); field LUAS
-tidak ditulis (virtual field QGIS sesuai Panduan Tapak Proyek v2.5).
+Nama file ZIP/DBF huruf kapital semua (mis. `TAPAK PROYEK.zip`).
+Ukuran halaman PDF peta: **679 × 401 pt** persis contoh peta tapak
+(QGIS), citra peta full-bleed tanpa kop/legenda.
 
 **Verifikasi writer:** `npx tsx scripts/verify-writer.ts` lalu bandingkan
 dengan template — ukuran byte, skema field, shape type, geometri (meter vs

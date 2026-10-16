@@ -134,7 +134,8 @@ export async function exportToFolder(
 
     // quartet SHP (writer terverifikasi, sama dengan jalur download)
     const set = buildAndVerify(
-      def.kind,
+      // Tapak Proyek mengikuti Panduan v2.5 (plain Polygon derajat)
+      def.key === 'tapak' ? 'tapak' : def.kind,
       feats.map((f) => ({
         geom: f.geom,
         attrs: attrsForFeature(opts.project, f) as AttrRecord,

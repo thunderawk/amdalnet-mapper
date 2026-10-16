@@ -3,8 +3,9 @@
  * validasi, autosave localStorage, save/load JSON.
  */
 import type { Geom, Pt } from './geo'
-import { ATTR_KEYS, LAYERS, LAYER_BY_KEY } from './layers'
-import type { AttrKey, LayerKey } from './layers'
+import { LAYERS, LAYER_BY_KEY } from './layers'
+import type { LayerKey } from './layers'
+import type { AttrRecord } from './shp'
 import { ringArea } from './geo'
 
 export const PROJECT_VERSION = 1
@@ -86,11 +87,27 @@ export function effectiveLayerAttr(layer: LayerKey): string {
   return LAYER_BY_KEY[layer].layerJuknis
 }
 
-/** Atribut lengkap 9 field untuk satu fitur (profil + kode/keterangan). */
+/**
+ * Atribut untuk satu fitur.
+ * Layer biasa: 9 field (profil + kode/keterangan).
+ * Tapak Proyek: 7 field sesuai Panduan v2.5 — TANPA KODE & TIPE_DOKUM,
+ * TAHUN ditulis sebagai teks.
+ */
 export function attrsForFeature(
   project: Project,
   feature: Feature,
-): Record<AttrKey, string | number> {
+): AttrRecord {
+  if (feature.layer === 'tapak') {
+    return {
+      id: 0,
+      PEMRAKARSA: project.pemrakarsa,
+      KEGIATAN: project.kegiatan,
+      TAHUN: project.tahun === '' ? '' : String(project.tahun),
+      PROVINSI: project.provinsi,
+      LAYER: effectiveLayerAttr(feature.layer),
+      KETERANGAN: feature.keterangan,
+    }
+  }
   return {
     PEMRAKARSA: project.pemrakarsa,
     KEGIATAN: project.kegiatan,
@@ -154,7 +171,8 @@ export function validateProject(project: Project): Issue[] {
         message: `Kegiatan ${p.kegiatan.length} char > lebar field ${def.fileName} (${kegField.length})`,
       })
     }
-    if (!f.kode.trim()) {
+    // Panduan Tapak v2.5 tidak mengenal KODE — lewati untuk layer tapak
+    if (f.layer !== 'tapak' && !f.kode.trim()) {
       issues.push({ level: 'error', layer: f.layer, featureId: f.id, message: 'KODE belum diisi' })
     }
     if (!f.keterangan.trim()) {
@@ -284,7 +302,9 @@ export function sanitizeProject(raw: unknown): Project {
 
 export function layerToCsv(project: Project, layer: LayerKey): string {
   const feats = featuresOf(project, layer)
-  const header = ['id', 'lon', 'lat', ...ATTR_KEYS]
+  const def = LAYER_BY_KEY[layer]
+  const cols = def.fields.map((f) => f.name)
+  const header = ['id', 'lon', 'lat', ...cols]
   const rows = feats.map((f) => {
     const a = attrsForFeature(project, f)
     let lon = ''
@@ -297,7 +317,7 @@ export function layerToCsv(project: Project, layer: LayerKey): string {
       lon = String(c.lon)
       lat = String(c.lat)
     }
-    return [f.id, lon, lat, ...ATTR_KEYS.map((k) => String(a[k]))]
+    return [f.id, lon, lat, ...cols.map((k) => String(a[k] ?? ''))]
   })
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
   return [header.join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n') + '\n'

@@ -36,7 +36,9 @@ export async function buildLayerZip(project: Project, layer: LayerKey): Promise<
     throw new Error(`${def.fileName}: belum ada fitur untuk diekspor`)
   }
   const set = buildAndVerify(
-    def.kind,
+    // Tapak Proyek mengikuti Panduan v2.5: plain Polygon DERAJAT (EPSG:4326),
+    // bukan PolygonZ Web Mercator seperti layer Area.
+    layer === 'tapak' ? 'tapak' : def.kind,
     feats.map((f) => ({ geom: f.geom, attrs: attrsForFeature(project, f) as AttrRecord })),
     def.fields,
   )
@@ -183,9 +185,10 @@ function captureMap(map: LMap, mapEl: HTMLElement): Promise<HTMLCanvasElement> {
     })
 }
 
-// ── PDF layout peta (A4 landscape) ──────────────────────────────────────────
-// Versi sekarang: capture peta polos (title/legenda/skala di-pending —
-// layout formal masuk ROADMAP tahap 2).
+// ── PDF peta — ukuran PERSIS contoh peta tapak (679 x 401 pt) ───────────────
+// Contoh: peta_tapak.pdf (QGIS 4.2.1) — 1 halaman 679x401 pt, citra peta
+// full-bleed tanpa kop/legenda. Ukuran ini dipakai untuk SEMUA layer agar
+// seragam.
 
 export async function buildLayerPdf(
   map: LMap,
@@ -193,11 +196,11 @@ export async function buildLayerPdf(
 ): Promise<Blob> {
   const canvas = await captureMap(map, mapEl)
 
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-  const W = pdf.internal.pageSize.getWidth()
-  const H = pdf.internal.pageSize.getHeight()
-  const M = 8
-  const ratio = Math.min((W - 2 * M) / canvas.width, (H - 2 * M) / canvas.height)
+  const pdf = new jsPDF({ unit: 'pt', format: [679, 401], orientation: 'landscape' })
+  const W = 679
+  const H = 401
+  // full-bleed seperti contoh: peta mengisi seluruh halaman (cover, crop tengah)
+  const ratio = Math.max(W / canvas.width, H / canvas.height)
   const iw = canvas.width * ratio
   const ih = canvas.height * ratio
   const imgData = canvas.toDataURL('image/jpeg', 0.92)

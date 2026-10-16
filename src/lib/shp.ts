@@ -8,9 +8,11 @@
  *  2. Nama field DBF maks 10 karakter.
  *  3. Lebar field DBF yang tidak muat -> TRUNCATE SENYAP. Di sini: THROW.
  *
- * Format per layer (keputusan terverifikasi vs template asli amdalnet):
+ * Format per layer (keputusan terverifikasi vs template asli amdalnet,
+ * kecuali tapak yang mengikuti Panduan Tapak Proyek v2.5):
  *  - Titik : POINT (type 1), koordinat DERAJAT,  .prj = EPSG:4326
  *  - Area  : POLYGONZ (type 15, Z=0), koordinat METER Web Mercator, .prj = EPSG:3857
+ *  - Tapak : POLYGON (type 5, tanpa Z), koordinat DERAJAT, .prj = EPSG:4326
  */
 import { PRJ_TITIK, PRJ_AREA, CPG } from './prj'
 import type { Geom, Pt } from './geo'
@@ -95,6 +97,25 @@ function pointBody(x: number, y: number): number[] {
   w.i32le(1)
   w.f64le(x)
   w.f64le(y)
+  return Array.from(w.buf)
+}
+
+function polygonBody(ring: Pt[]): number[] {
+  const n = ring.length
+  const xs = ring.map((p) => p.lon)
+  const ys = ring.map((p) => p.lat)
+  const bbox = [
+    Math.min(...xs), Math.min(...ys),
+    Math.max(...xs), Math.max(...ys),
+  ]
+  const size = 4 + 32 + 4 + 4 + 4 + 16 * n
+  const w = new W(size)
+  w.i32le(5) // POLYGON (tanpa Z) — dipakai layer Tapak (Panduan v2.5)
+  for (const b of bbox) w.f64le(b)
+  w.i32le(1) // NumParts
+  w.i32le(n) // NumPoints
+  w.i32le(0) // Parts[0]
+  for (const p of ring) { w.f64le(p.lon); w.f64le(p.lat) }
   return Array.from(w.buf)
 }
 
@@ -198,7 +219,7 @@ function buildDbf(fields: DbfField[], records: AttrRecord[]): Uint8Array {
 
 // ── build quartet ───────────────────────────────────────────────────────────
 
-export type LayerKind = 'titik' | 'area'
+export type LayerKind = 'titik' | 'area' | 'tapak'
 
 export function buildShapefile(
   layerKind: LayerKind,
@@ -206,7 +227,8 @@ export function buildShapefile(
   fields: DbfField[],
 ): ShapefileSet {
   const isTitik = layerKind === 'titik'
-  const shapeType = isTitik ? 1 : 15
+  const isTapak = layerKind === 'tapak'
+  const shapeType = isTitik ? 1 : isTapak ? 5 : 15
 
   // siapkan body + bbox global
   const bodies: number[][] = []
@@ -231,12 +253,22 @@ export function buildShapefile(
         ring = [...ring, { lon: first.lon, lat: first.lat }]
       }
       if (ring.length < 4) throw new Error('Polygon butuh minimal 3 vertex unik')
-      // DERAJAT -> METER Web Mercator (sesuai template Area amdalnet)
-      const ringMerc = ring.map((p) => ({ lon: lonToMercX(p.lon), lat: latToMercY(p.lat) }))
-      bodies.push(polygonZBody(ringMerc))
-      for (const p of ringMerc) {
-        bbox[0] = Math.min(bbox[0], p.lon); bbox[1] = Math.min(bbox[1], p.lat)
-        bbox[2] = Math.max(bbox[2], p.lon); bbox[3] = Math.max(bbox[3], p.lat)
+      if (isTapak) {
+        // Panduan Tapak v2.5: plain Polygon dalam DERAJAT (EPSG:4326),
+        // TANPA konversi ke meter Web Mercator.
+        bodies.push(polygonBody(ring))
+        for (const p of ring) {
+          bbox[0] = Math.min(bbox[0], p.lon); bbox[1] = Math.min(bbox[1], p.lat)
+          bbox[2] = Math.max(bbox[2], p.lon); bbox[3] = Math.max(bbox[3], p.lat)
+        }
+      } else {
+        // DERAJAT -> METER Web Mercator (sesuai template Area amdalnet)
+        const ringMerc = ring.map((p) => ({ lon: lonToMercX(p.lon), lat: latToMercY(p.lat) }))
+        bodies.push(polygonZBody(ringMerc))
+        for (const p of ringMerc) {
+          bbox[0] = Math.min(bbox[0], p.lon); bbox[1] = Math.min(bbox[1], p.lat)
+          bbox[2] = Math.max(bbox[2], p.lon); bbox[3] = Math.max(bbox[3], p.lat)
+        }
       }
     }
   }
@@ -276,7 +308,7 @@ export function buildShapefile(
 
   const records = features.map((f) => f.attrs)
 
-  const prjStr = isTitik ? PRJ_TITIK : PRJ_AREA
+  const prjStr = isTitik || isTapak ? PRJ_TITIK : PRJ_AREA
   return {
     shp: shpW.buf.slice(0, shpW.pos),
     shx: shxW.buf.slice(0, shxW.pos),
@@ -306,7 +338,8 @@ export function buildAndVerify(
   fields: DbfField[],
 ): ShapefileSet {
   const set = buildShapefile(layerKind, features, fields)
-  verifyShpBytes(set.shp, layerKind === 'titik' ? 1 : 15)
-  verifyShpBytes(set.shx, layerKind === 'titik' ? 1 : 15)
+  const expectType = layerKind === 'titik' ? 1 : layerKind === 'tapak' ? 5 : 15
+  verifyShpBytes(set.shp, expectType)
+  verifyShpBytes(set.shx, expectType)
   return set
 }
