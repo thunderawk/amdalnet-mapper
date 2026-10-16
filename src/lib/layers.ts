@@ -48,6 +48,22 @@ const TITIK_FIELDS: DbfField[] = [
   { name: 'ID', type: 'N', length: 10, decimals: 0 },
 ]
 
+/**
+ * Skema atribut TAPAK PROYEK — Panduan Tapak Proyek v2.5 (Juli 2024).
+ * SENGAJA BERBEDA dari layer lain: id + 6 field teks (255), TANPA KODE
+ * dan TANPA TIPE_DOKUM. LUAS = virtual field QGIS ($area/10000, ha) dan
+ * tidak disimpan ke SHP. Urutan field mengikuti panduan.
+ */
+const TAPAK_FIELDS: DbfField[] = [
+  { name: 'id', type: 'N', length: 10, decimals: 0 },
+  { name: 'PEMRAKARSA', type: 'C', length: 255, decimals: 0 },
+  { name: 'KEGIATAN', type: 'C', length: 255, decimals: 0 },
+  { name: 'TAHUN', type: 'C', length: 255, decimals: 0 },
+  { name: 'PROVINSI', type: 'C', length: 255, decimals: 0 },
+  { name: 'LAYER', type: 'C', length: 255, decimals: 0 },
+  { name: 'KETERANGAN', type: 'C', length: 255, decimals: 0 },
+]
+
 const AREA_FIELDS: DbfField[] = [
   { name: 'PEMRAKARSA', type: 'C', length: 100, decimals: 0 },
   { name: 'KEGIATAN', type: 'C', length: 254, decimals: 0 },
@@ -134,9 +150,12 @@ export const LAYERS: LayerDef[] = [
     kind: 'area',
     geometry: 'polygon',
     slot: 'Peta Tapak Proyek',
-    fields: AREA_FIELDS,
+    fields: TAPAK_FIELDS,
     // Panduan Tapak Proyek v2.5 (Juli 2024): nama file HURUF KAPITAL semua,
-    // atribut LAYER diisi teks "Tapak Proyek".
+    // atribut LAYER diisi teks "Tapak Proyek". Skema atribut tapak SENGAJA
+    // berbeda dari layer lain (7 field, tanpa KODE & TIPE_DOKUM) dan geometri
+    // ditulis sebagai plain Polygon dalam DERAJAT (EPSG:4326) — bukan
+    // PolygonZ Web Mercator seperti layer Area. Lihat src/lib/shp.ts.
     layerJuknis: 'Tapak Proyek',
     color: '#7c3aed',
     fill: 'rgba(124,58,237,0.10)',

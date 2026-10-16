@@ -69,6 +69,8 @@ export default function FeatureTable(props: Props) {
   const def = LAYER_BY_KEY[activeLayer]
   const feats = featuresOf(project, activeLayer)
   const isPoint = def.geometry === 'point'
+  // Panduan Tapak v2.5 tidak mengenal KODE — sembunyikan kolom & bulk-nya
+  const isTapak = activeLayer === 'tapak'
   const totalArea = allFeaturesArea(project, activeLayer)
 
   const filtered = useMemo(() => {
@@ -176,34 +178,38 @@ export default function FeatureTable(props: Props) {
               </div>
             </div>
             <div className="flex gap-1.5">
-              <Input
-                value={bulkPrefix}
-                onChange={(e) => setBulkPrefix(e.target.value)}
-                placeholder="Awalan KODE mis. B"
-                className="h-7 w-28 text-xs"
-                title="Isi KODE berurutan (B1, B2, …) untuk baris yang tampil"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                disabled={!bulkPrefix.trim() || filtered.length === 0}
-                onClick={() => {
-                  onBulkKode(bulkPrefix.trim(), filtered.map((f) => f.id))
-                  setBulkPrefix('')
-                }}
-                title={`Isi KODE berurutan untuk ${filtered.length} baris yang tampil`}
-              >
+              {!isTapak && (
+                <>
+                  <Input
+                    value={bulkPrefix}
+                    onChange={(e) => setBulkPrefix(e.target.value)}
+                    placeholder="Awalan KODE mis. B"
+                    className="h-7 w-28 text-xs"
+                    title="Isi KODE berurutan (B1, B2, …) untuk baris yang tampil"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={!bulkPrefix.trim() || filtered.length === 0}
+                    onClick={() => {
+                      onBulkKode(bulkPrefix.trim(), filtered.map((f) => f.id))
+                      setBulkPrefix('')
+                    }}
+                    title={`Isi KODE berurutan untuk ${filtered.length} baris yang tampil`}
+                  >
                 <Wand2 className="mr-1 h-3.5 w-3.5" />
                 Isi KODE ({filtered.length})
               </Button>
+                </>
+              )}
             </div>
             <ScrollArea className="min-h-0 flex-1">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10">#</TableHead>
-                    <TableHead className="w-20">KODE</TableHead>
+                    {!isTapak && <TableHead className="w-20">KODE</TableHead>}
                     <TableHead>KETERANGAN</TableHead>
                     {!isPoint && <TableHead className="w-20 text-right">Luas</TableHead>}
                     <TableHead className="w-16" />
@@ -216,14 +222,16 @@ export default function FeatureTable(props: Props) {
                       className={f.id === selectedId ? 'bg-accent' : undefined}
                     >
                       <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
-                      <TableCell>
-                        <Input
-                          className="h-7 w-20 px-1.5 text-xs"
-                          value={f.kode}
-                          placeholder="—"
-                          onChange={(e) => onUpdateFeature(f.id, { kode: e.target.value })}
-                        />
-                      </TableCell>
+                      {!isTapak && (
+                        <TableCell>
+                          <Input
+                            className="h-7 w-20 px-1.5 text-xs"
+                            value={f.kode}
+                            placeholder="—"
+                            onChange={(e) => onUpdateFeature(f.id, { kode: e.target.value })}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Input
                           className="h-7 px-1.5 text-xs"
