@@ -121,16 +121,15 @@ export async function searchWilayah(
   const query = q.trim()
   if (query.length < 3) return []
   const like = `upper(NAMOBJ) LIKE '%${escLike(query)}%'`
+  const levels = ['keldesa', 'kecamatan', 'kabkota'] as WilayahLevel[]
+  // Paralel: server BIG lambat — sekuensial 3 level = 3x waktu tunggu.
+  // Urutan prioritas tetap desa → kecamatan → kab/kota.
+  const settled = await Promise.allSettled(
+    levels.map((level) => queryBig(level, { where: like }, 1, false)),
+  )
   const out: Wilayah[] = []
-  for (const level of ['keldesa', 'kecamatan', 'kabkota'] as WilayahLevel[]) {
-    try {
-      // NOTE: server BIG menolak resultRecordCount ("Pagination is not supported")
-      // → batasi di sisi klien. Geometri diambil terpisah agar pencarian ringan.
-      const rows = await queryBig(level, { where: like }, 1, false)
-      out.push(...rows.slice(0, limit))
-    } catch {
-      /* satu level gagal — lanjutkan level lain */
-    }
+  for (const s of settled) {
+    if (s.status === 'fulfilled') out.push(...s.value.slice(0, limit))
     if (out.length >= limit) break
   }
   return out.slice(0, limit)
@@ -144,7 +143,12 @@ export async function fetchWilayahGeometry(w: Wilayah): Promise<Wilayah> {
   if (!w.objectId) throw new Error('ID wilayah tidak valid')
   const rows = await queryBig(
     w.level,
-    { where: `OBJECTID = ${w.objectId}` },
+    {
+      where: `OBJECTID = ${w.objectId}`,
+      // sederhanakan geometri di sisi server (~11 m) — jauh lebih ringan,
+      // masih akurat untuk tampilan batas di peta
+      maxAllowableOffset: '0.0001',
+    },
     1,
     true,
   )
