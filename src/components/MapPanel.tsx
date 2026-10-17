@@ -2,7 +2,7 @@
  * MapPanel — peta Leaflet dengan draw custom (titik & polygon), 5 layer,
  * basemap switcher, seleksi & zoom fitur.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Info, Loader2, Undo2, X } from 'lucide-react'
@@ -12,19 +12,11 @@ import { LAYERS, LAYER_BY_KEY } from '@/lib/layers'
 import type { LayerKey } from '@/lib/layers'
 import { featuresOf } from '@/lib/project'
 import type { Feature, Project } from '@/lib/project'
-import {
-  OVERLAY_DEFS,
-  bboxChangedEnough,
-  fetchAdminBoundary,
-  fetchRoads,
-} from '@/lib/overpass'
-import type { BBox, OverlayKey } from '@/lib/overpass'
-import { LEVEL_LABEL, wilayahLabel } from '@/lib/big'
+import { LEVEL_LABEL } from '@/lib/big'
 import type { Wilayah } from '@/lib/big'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import LocationSearch from '@/components/LocationSearch'
 
 export type DrawMode = 'none' | 'point' | 'polygon'
 
@@ -47,10 +39,6 @@ interface Props {
   onExitDraw: () => void
   mapRef: React.RefObject<L.Map | null>
   mapElRef: React.RefObject<HTMLDivElement | null>
-  /** Batas wilayah BIG yang sedang ditampilkan (dari pencarian). */
-  wilayah: Wilayah | null
-  onFlyTo: (lon: number, lat: number, zoom?: number) => void
-  onWilayah: (w: Wilayah | null) => void
   /** Mode info administrasi (klik peta → detail wilayah). */
   infoMode: boolean
   onToggleInfoMode: () => void
@@ -66,13 +54,21 @@ interface Props {
 /**
  * Satu-satunya basemap: citra satelit Esri World Imagery — sesuai contoh
  * JUKNIS & pratinjau peta di amdalnet (satelit + titik/polygon merah).
- * Pilihan basemap lain dihapus atas permintaan user (2026-10-15).
+ * Opsi basemap: Esri World Imagery (bawaan) + Google Satellite (atas permintaan user 2026-10-18).
  */
-const BASEMAP = {
-  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  attribution: 'Esri, Maxar, Earthstar Geographics',
-  maxZoom: 19,
+const BASEMAPS: Record<string, { url: string; attribution: string; maxZoom: number }> = {
+  'Esri Satelit': {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Esri, Maxar, Earthstar Geographics',
+    maxZoom: 19,
+  },
+  'Google Satelit': {
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    attribution: 'Google',
+    maxZoom: 20,
+  },
 }
+const DEFAULT_BASEMAP = 'Esri Satelit'
 
 export default function MapPanel(props: Props) {
   const {
@@ -85,9 +81,6 @@ export default function MapPanel(props: Props) {
     onExitDraw,
     mapRef,
     mapElRef,
-    wilayah,
-    onFlyTo,
-    onWilayah,
     infoMode,
     onToggleInfoMode,
     onPickAdmin,
@@ -99,10 +92,6 @@ export default function MapPanel(props: Props) {
   } = props
 
   const groupsRef = useRef<Map<LayerKey, L.LayerGroup>>(new Map())
-  const overlayGroupsRef = useRef<Map<OverlayKey, L.LayerGroup>>(new Map())
-  const manualOverlayRef = useRef<L.LayerGroup | null>(null)
-  const wilayahRef = useRef<L.LayerGroup | null>(null)
-  const lastBboxRef = useRef<BBox | null>(null)
   const tempRef = useRef<{ pts: Pt[]; line: L.Polyline | null; verts: L.CircleMarker[] }>({
     pts: [],
     line: null,
@@ -111,9 +100,6 @@ export default function MapPanel(props: Props) {
   /** Undo vertex terakhir saat menggambar polygon (diisi oleh efek draw). */
   const undoVertexRef = useRef<(() => void) | null>(null)
   const initedRef = useRef(false)
-  const [activeOverlays, setActiveOverlays] = useState<Set<OverlayKey>>(new Set())
-  const [overlayLoading, setOverlayLoading] = useState<OverlayKey | null>(null)
-  const [overlayError, setOverlayError] = useState('')
   /** Statistik gambar berjalan: jumlah vertex + luas sementara (m²). */
   const [drawStats, setDrawStats] = useState<{ verts: number; areaM2: number }>({
     verts: 0,
@@ -131,29 +117,27 @@ export default function MapPanel(props: Props) {
     // kontrol zoom di kanan atas (kiri atas dipakai panel status layer)
     L.control.zoom({ position: 'topright' }).addTo(map)
 
-    L.tileLayer(BASEMAP.url, {
-      attribution: BASEMAP.attribution,
-      maxZoom: BASEMAP.maxZoom,
-      crossOrigin: true,
-    }).addTo(map)
+    const baseLayers: Record<string, L.TileLayer> = {}
+    for (const [name, b] of Object.entries(BASEMAPS)) {
+      baseLayers[name] = L.tileLayer(b.url, {
+        attribution: b.attribution,
+        maxZoom: b.maxZoom,
+        crossOrigin: true,
+      })
+    }
+    baseLayers[DEFAULT_BASEMAP].addTo(map)
 
     for (const def of LAYERS) {
       groupsRef.current.set(def.key, L.layerGroup().addTo(map))
     }
-    for (const def of OVERLAY_DEFS) {
-      const g = L.layerGroup()
-      overlayGroupsRef.current.set(def.key, g)
-    }
-    manualOverlayRef.current = L.layerGroup().addTo(map)
-    wilayahRef.current = L.layerGroup().addTo(map)
 
     // class penanda basemap satelit — dark mode memakai filter khusus
     map.getContainer().classList.add('basemap-satellite')
 
-    // kontrol layer: hanya overlay 5 layer (tanpa pilihan basemap)
+    // kontrol layer: pilihan basemap + overlay 5 layer konten
     const overlayObj: Record<string, L.LayerGroup> = {}
     for (const def of LAYERS) overlayObj[def.label] = groupsRef.current.get(def.key)!
-    L.control.layers(undefined, overlayObj, { position: 'topright' }).addTo(map)
+    L.control.layers(baseLayers, overlayObj, { position: 'topright' }).addTo(map)
 
     setTimeout(() => map.invalidateSize(), 100)
     return () => {
@@ -172,7 +156,6 @@ export default function MapPanel(props: Props) {
       const g = groupsRef.current.get(def.key)!
       g.clearLayers()
       const feats = featuresOf(project, def.key)
-      const permanent = feats.length <= 12
       for (const f of feats) {
         const isSel = f.id === selectedId
         const isEditing = f.id === editingId && def.geometry === 'point'
@@ -184,7 +167,7 @@ export default function MapPanel(props: Props) {
         const tip = isEditing
           ? 'Seret untuk memindahkan titik ini'
           : `${f.kode || '?'}${f.keterangan ? ' — ' + f.keterangan : ''}`
-        layer.bindTooltip(tip, { permanent, direction: 'top', className: 'amdal-tip' })
+        layer.bindTooltip(tip, { permanent: false, direction: 'top', className: 'amdal-tip' })
         if (!isEditing) layer.on('click', () => onSelect(f.id))
         g.addLayer(layer)
       }
@@ -211,25 +194,6 @@ export default function MapPanel(props: Props) {
     if (b) map.fitBounds(b, { padding: [80, 80], maxZoom: 18 })
   }, [selectedId, project, mapRef])
 
-  // ── batas wilayah BIG (dari pencarian) ──
-  useEffect(() => {
-    const map = mapRef.current
-    const g = wilayahRef.current
-    if (!map || !g) return
-    g.clearLayers()
-    if (!wilayah || wilayah.rings.length === 0) return
-    for (const ring of wilayah.rings) {
-      L.polygon(
-        ring.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-        { color: '#7c3aed', weight: 2.5, dashArray: '8 5', fillOpacity: 0.06 },
-      ).addTo(g)
-    }
-    const b = L.latLngBounds(
-      wilayah.rings.flat().map((p) => [p.lat, p.lon] as L.LatLngTuple),
-    )
-    if (b.isValid()) map.fitBounds(b, { padding: [40, 40] })
-  }, [wilayah, mapRef])
-
   // ── mode info administrasi: klik peta → reverse-geocode ──
   useEffect(() => {
     const map = mapRef.current
@@ -244,102 +208,6 @@ export default function MapPanel(props: Props) {
       map.getContainer().style.cursor = ''
     }
   }, [infoMode, onPickAdmin, mapRef])
-
-  // ── overlay otomatis (jalan / batas administrasi) via Overpass ──
-  const refreshOverlays = useCallback(
-    async (b: BBox) => {
-      const map = mapRef.current
-      if (!map) return
-      for (const key of activeOverlays) {
-        const def = OVERLAY_DEFS.find((d) => d.key === key)
-        const group = overlayGroupsRef.current.get(key)
-        if (!def || !group) continue
-        setOverlayLoading(key)
-        try {
-          const ways = def.admin
-            ? await fetchAdminBoundary(b, def.admin)
-            : await fetchRoads(b)
-          group.clearLayers()
-          for (const w of ways) {
-            const line = L.polyline(
-              w.coords.map(([lon, lat]) => [lat, lon] as L.LatLngTuple),
-              {
-                color: def.color,
-                weight: def.admin ? 2 : 3,
-                opacity: def.admin ? 0.9 : 0.65,
-                dashArray: def.admin ? '7 4' : undefined,
-                interactive: !!w.name,
-              },
-            )
-            if (w.name) {
-              line.bindTooltip(w.name, { direction: 'top', className: 'amdal-tip' })
-            }
-            group.addLayer(line)
-          }
-          setOverlayError('')
-        } catch (e) {
-          setOverlayError(
-            `${def.label}: ${e instanceof Error ? e.message : String(e)}`,
-          )
-        } finally {
-          setOverlayLoading(null)
-        }
-      }
-    },
-    [activeOverlays, mapRef],
-  )
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (activeOverlays.size === 0) {
-      for (const g of overlayGroupsRef.current.values()) g.clearLayers()
-      return
-    }
-    const onMove = () => {
-      window.setTimeout(() => {
-        const b = map.getBounds()
-        const bb: BBox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
-        if (lastBboxRef.current && !bboxChangedEnough(lastBboxRef.current, bb)) return
-        lastBboxRef.current = bb
-        void refreshOverlays(bb)
-      }, 800)
-    }
-    map.on('moveend', onMove)
-    const b = map.getBounds()
-    const bb: BBox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
-    lastBboxRef.current = bb
-    void refreshOverlays(bb)
-    return () => {
-      map.off('moveend', onMove)
-    }
-  }, [activeOverlays, refreshOverlays, mapRef])
-
-  const toggleOverlay = (key: OverlayKey) => {
-    setActiveOverlays((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-    setOverlayError('')
-  }
-
-  const handleManualGeo = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !manualOverlayRef.current) return
-    try {
-      const gj = JSON.parse(await files[0].text())
-      manualOverlayRef.current.clearLayers()
-      L.geoJSON(gj, {
-        style: { color: '#0891b2', weight: 2, fillOpacity: 0.05 },
-      }).addTo(manualOverlayRef.current)
-      setOverlayError('')
-    } catch (e) {
-      setOverlayError(
-        `Gagal impor GeoJSON overlay: ${e instanceof Error ? e.message : String(e)}`,
-      )
-    }
-  }
 
   // ── mode gambar titik ──
   useEffect(() => {
@@ -507,14 +375,6 @@ export default function MapPanel(props: Props) {
           </div>
         )}
       </div>
-      {/* pencarian lokasi */}
-      <div className="absolute top-3 left-1/2 z-[500] hidden -translate-x-1/2 md:block">
-        <LocationSearch
-          onFlyTo={(lon, lat) => onFlyTo(lon, lat, 14)}
-          onWilayah={onWilayah}
-          activeWilayahLabel={wilayah ? wilayahLabel(wilayah) : null}
-        />
-      </div>
       {/* tombol keluar mode gambar */}
       {drawMode !== 'none' && (
         <div className="absolute bottom-4 left-1/2 z-[500] -translate-x-1/2">
@@ -555,47 +415,6 @@ export default function MapPanel(props: Props) {
           </Card>
         </div>
       )}
-      {/* panel overlay peta (jalan, batas administrasi) */}
-      <div className="overlay-panel absolute right-3 bottom-3 z-[500] w-52 rounded-md border p-2 text-xs shadow-sm">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="font-medium">Overlay Peta</span>
-          {overlayLoading && <Loader2 className="text-muted-foreground h-3 w-3 animate-spin" />}
-        </div>
-        <div className="space-y-1">
-          {OVERLAY_DEFS.map((def) => (
-            <label key={def.key} className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="checkbox"
-                className="accent-primary h-3 w-3"
-                checked={activeOverlays.has(def.key)}
-                onChange={() => toggleOverlay(def.key)}
-              />
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: def.color }}
-              />
-              <span className="truncate">{def.label}</span>
-            </label>
-          ))}
-        </div>
-        <div className="mt-1.5 border-t pt-1.5">
-          <label className="text-muted-foreground hover:text-foreground cursor-pointer">
-            + Impor GeoJSON overlay (jalan/batas sendiri)
-            <input
-              type="file"
-              accept=".geojson,.json"
-              className="hidden"
-              onChange={(e) => void handleManualGeo(e.target.files)}
-            />
-          </label>
-        </div>
-        <p className="text-muted-foreground mt-1 text-[10px] leading-snug">
-          Sumber: OpenStreetMap via Overpass. Muat ulang otomatis saat peta digeser.
-        </p>
-        {overlayError && (
-          <p className="text-destructive mt-1 text-[10px] leading-snug">{overlayError}</p>
-        )}
-      </div>
     </Card>
   )
 }
