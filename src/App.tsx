@@ -17,7 +17,7 @@ import ImportDialog from '@/components/ImportDialog'
 import { LAYER_BY_KEY } from '@/lib/layers'
 import type { LayerKey } from '@/lib/layers'
 import type { Geom } from '@/lib/geo'
-import { fetchWilayahGeometry, reverseGeocode, wilayahLabel } from '@/lib/big'
+import { reverseGeocode } from '@/lib/big'
 import type { Wilayah } from '@/lib/big'
 import { useTheme } from '@/lib/theme'
 import {
@@ -53,8 +53,7 @@ export default function App() {
   const [importSlot, setImportSlot] = useState<LayerKey | null>(null)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
-  // pencarian wilayah BIG + mode info administrasi
-  const [wilayahBoundary, setWilayahBoundary] = useState<Wilayah | null>(null)
+  // mode info administrasi
   const [infoMode, setInfoMode] = useState(false)
   const [adminPick, setAdminPick] = useState<AdminPick | null>(null)
 
@@ -315,11 +314,6 @@ export default function App() {
     toast.success(`${ids.length} fitur diberi KODE ${prefix}1…${prefix}${ids.length}`)
   }, [])
 
-  // ── navigasi peta ──
-  const handleFlyTo = useCallback((lon: number, lat: number, zoom = 14) => {
-    mapRef.current?.flyTo([lat, lon], zoom, { duration: 1.2 })
-  }, [])
-
   // ── wilayah BIG → gambar batas + isi profil otomatis ──
   const applyWilayahToProfile = useCallback((w: Wilayah) => {
     const patch: Partial<Project> = {}
@@ -332,29 +326,6 @@ export default function App() {
     }
     setProject((p) => ({ ...p, ...patch }))
   }, [])
-
-  const wilayahSeqRef = useRef(0)
-  const handleWilayah = useCallback(
-    async (w: Wilayah | null) => {
-      const seq = ++wilayahSeqRef.current
-      if (!w) {
-        setWilayahBoundary(null)
-        return
-      }
-      toast.info(`Memuat batas ${wilayahLabel(w)}…`)
-      try {
-        const full = await fetchWilayahGeometry(w)
-        if (wilayahSeqRef.current !== seq) return
-        setWilayahBoundary(full)
-        applyWilayahToProfile(full)
-        toast.success(`Batas ${wilayahLabel(full)} ditampilkan — profil terisi otomatis`)
-      } catch (e) {
-        if (wilayahSeqRef.current !== seq) return
-        toast.error(`Gagal memuat batas wilayah: ${e instanceof Error ? e.message : 'coba lagi'}`)
-      }
-    },
-    [applyWilayahToProfile],
-  )
 
   // ── mode info administrasi ──
   const handlePickAdmin = useCallback(async (lon: number, lat: number) => {
@@ -510,9 +481,6 @@ export default function App() {
               }}
               mapRef={mapRef}
               mapElRef={mapElRef}
-              wilayah={wilayahBoundary}
-              onFlyTo={handleFlyTo}
-              onWilayah={handleWilayah}
               infoMode={infoMode}
               onToggleInfoMode={() => {
                 setInfoMode((v) => !v)
