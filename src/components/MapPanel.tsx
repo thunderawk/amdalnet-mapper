@@ -58,6 +58,9 @@ interface Props {
   adminPick: AdminPick | null
   onCloseAdmin: () => void
   onUseAdmin: (w: Wilayah) => void
+  /** Fitur titik yang sedang diedit — markernya bisa diseret di peta. */
+  editingId: string | null
+  onMoveFeature: (id: string, lon: number, lat: number) => void
 }
 
 /**
@@ -91,6 +94,8 @@ export default function MapPanel(props: Props) {
     adminPick,
     onCloseAdmin,
     onUseAdmin,
+    editingId,
+    onMoveFeature,
   } = props
 
   const groupsRef = useRef<Map<LayerKey, L.LayerGroup>>(new Map())
@@ -170,14 +175,21 @@ export default function MapPanel(props: Props) {
       const permanent = feats.length <= 12
       for (const f of feats) {
         const isSel = f.id === selectedId
-        const layer = def.geometry === 'point' ? pointLayer(def, f, isSel) : areaLayer(def, f, isSel)
-        const tip = `${f.kode || '?'}${f.keterangan ? ' — ' + f.keterangan : ''}`
+        const isEditing = f.id === editingId && def.geometry === 'point'
+        const layer: L.Layer = isEditing
+          ? editingPointMarker(def, f, onMoveFeature)
+          : def.geometry === 'point'
+            ? pointLayer(def, f, isSel)
+            : areaLayer(def, f, isSel)
+        const tip = isEditing
+          ? 'Seret untuk memindahkan titik ini'
+          : `${f.kode || '?'}${f.keterangan ? ' — ' + f.keterangan : ''}`
         layer.bindTooltip(tip, { permanent, direction: 'top', className: 'amdal-tip' })
-        layer.on('click', () => onSelect(f.id))
+        if (!isEditing) layer.on('click', () => onSelect(f.id))
         g.addLayer(layer)
       }
     }
-  }, [project, selectedId, onSelect, mapRef])
+  }, [project, selectedId, editingId, onSelect, onMoveFeature, mapRef])
 
   // ── zoom ke layer aktif saat ganti tab ──
   useEffect(() => {
@@ -586,6 +598,30 @@ export default function MapPanel(props: Props) {
       </div>
     </Card>
   )
+}
+
+/** Marker titik yang sedang diedit — bisa diseret langsung di peta. */
+function editingPointMarker(
+  def: (typeof LAYERS)[number],
+  f: Feature,
+  onMove: (id: string, lon: number, lat: number) => void,
+): L.Marker {
+  const c = f.geom.type === 'Point' ? f.geom.c : { lon: 0, lat: 0 }
+  const m = L.marker([c.lat, c.lon], {
+    icon: L.divIcon({
+      html: `<div style="width:20px;height:20px;border-radius:9999px;background:${def.color};border:3px solid #fff;box-shadow:0 0 0 4px ${def.color}44,0 2px 6px rgba(0,0,0,.45);cursor:grab"></div>`,
+      className: '',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    }),
+    draggable: true,
+    zIndexOffset: 1000,
+  })
+  m.on('dragend', () => {
+    const ll = m.getLatLng()
+    onMove(f.id, ll.lng, ll.lat)
+  })
+  return m
 }
 
 function pointLayer(def: (typeof LAYERS)[number], f: Feature, isSel: boolean): L.CircleMarker {

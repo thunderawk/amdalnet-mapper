@@ -300,3 +300,81 @@ function buildReadme(
   ]
   return lines.join('\n')
 }
+
+// ── ZIP arsip per folder konten: amdalnet_mapper/ ───────────────────────────
+// Struktur (sesuai keputusan desain):
+//   amdalnet_mapper.zip
+//   └── amdalnet_mapper/
+//       ├── tapak_proyek/  → tapak-proyek.zip + tapak-proyek.pdf
+//       ├── titik_kelola/  → ...
+//       └── ...
+// Layer kosong dilewati. Untuk arsip pribadi; upload ke amdalnet tetap
+// per-layer (ZIP + PDF tiap slot).
+
+export interface FolderZipResult {
+  blob: Blob
+  filename: string
+  included: LayerKey[]
+  skipped: LayerKey[]
+}
+
+export async function exportFolderZip(
+  project: Project,
+  map: LMap,
+  mapEl: HTMLElement,
+  onProgress?: (msg: string) => void,
+): Promise<FolderZipResult> {
+  const root = new JSZip()
+  const base = root.folder('amdalnet_mapper')
+  if (!base) throw new Error('Gagal membuat arsip ZIP')
+  const included: LayerKey[] = []
+  const skipped: LayerKey[] = []
+
+  for (const def of LAYERS) {
+    const feats = featuresOf(project, def.key)
+    if (feats.length === 0) {
+      skipped.push(def.key)
+      continue
+    }
+    onProgress?.(`Menyiapkan ${def.fileName}…`)
+    const dir = base.folder(def.folder)
+    if (!dir) throw new Error(`Gagal membuat folder ${def.folder}`)
+    const zipBlob = await buildLayerZip(project, def.key)
+    dir.file(`${def.fileName}.zip`, zipBlob)
+    try {
+      const pdfBlob = await buildLayerPdf(map, mapEl)
+      dir.file(`${def.fileName}.pdf`, pdfBlob)
+    } catch (e) {
+      console.warn('PDF gagal untuk', def.fileName, e)
+    }
+    included.push(def.key)
+  }
+
+  base.file(
+    'README.txt',
+    [
+      'ARSIP AMDALNET MAPPER — amdalnet_mapper/',
+      '='.repeat(60),
+      '',
+      `Pemrakarsa : ${project.pemrakarsa}`,
+      `Kegiatan   : ${project.kegiatan}`,
+      `Tahun      : ${project.tahun}`,
+      `Provinsi   : ${project.provinsi}`,
+      '',
+      'Tiap folder konten berisi ZIP (SHP) + PDF layer tersebut.',
+      'Untuk upload ke amdalnet.menlhk.go.id, unggah ZIP + PDF',
+      'langsung dari tiap folder ke slot yang sesuai.',
+      '',
+      ...included.map((k) => `  ${LAYERS.find((d) => d.key === k)!.folder}/`),
+      '',
+      skipped.length
+        ? `Konten kosong (tidak diarsipkan): ${skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}`
+        : 'Semua konten memiliki fitur.',
+      '',
+      `Dibuat oleh AMDALNET Mapper pada ${new Date().toLocaleString('id-ID')}`,
+    ].join('\n'),
+  )
+
+  const blob = await root.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+  return { blob, filename: 'amdalnet_mapper.zip', included, skipped }
+}
