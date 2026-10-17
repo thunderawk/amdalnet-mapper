@@ -146,21 +146,37 @@ function polygonZBody(ring: Pt[]): number[] {
 const enc = new TextEncoder()
 
 function dbfValueBytes(f: DbfField, v: AttrValue | undefined): Uint8Array {
-  let s: string
+  let bytes: Uint8Array
   if (f.type === 'N') {
     const n = v === undefined || v === '' ? '' : Number(v)
-    s = isFinite(n as number) ? (n as number).toFixed(f.decimals) : ''
-    s = s.padStart(f.length, ' ')
+    const s = isFinite(n as number) ? (n as number).toFixed(f.decimals) : ''
+    // N selalu ASCII murni → byte == char, padStart per char aman
+    bytes = enc.encode(s.padStart(f.length, ' '))
   } else {
-    s = String(v ?? '')
-    if (s.length > f.length) {
-      throw new Error(
-        `DBF field "${f.name}": nilai ${s.length} char > lebar field ${f.length} — akan terpotong senyap. Nilai: "${s}"`,
-      )
-    }
-    s = s.padEnd(f.length, ' ')
+    bytes = enc.encode(String(v ?? ''))
   }
-  return enc.encode(s.slice(0, f.length))
+  // Lebar field DBF dihitung dalam BYTE (CPG UTF-8), bukan char.
+  if (bytes.length > f.length) {
+    throw new Error(
+      `DBF field "${f.name}": nilai ${bytes.length} byte > lebar field ${f.length} byte — persingkat teks / kurangi karakter non-ASCII.`,
+    )
+  }
+  if (bytes.length === f.length) return bytes
+  // padding spasi tepat f.length BYTE
+  const out = new Uint8Array(f.length)
+  out.fill(0x20)
+  out.set(bytes)
+  return out
+}
+
+/** Panjang byte UTF-8 dari nilai field setelah format DBF (tanpa padding). */
+function dbfByteLength(f: DbfField, v: AttrValue | undefined): number {
+  if (f.type === 'N') {
+    const n = v === undefined || v === '' ? '' : Number(v)
+    const s = isFinite(n as number) ? (n as number).toFixed(f.decimals) : ''
+    return enc.encode(s).length
+  }
+  return enc.encode(String(v ?? '')).length
 }
 
 function buildDbf(fields: DbfField[], records: AttrRecord[]): Uint8Array {
@@ -169,16 +185,15 @@ function buildDbf(fields: DbfField[], records: AttrRecord[]): Uint8Array {
       throw new Error(`DBF field name >10 chars: "${f.name}"`)
     }
   }
-  // pre-validasi semua nilai SEBELUM menulis byte apa pun
+  // pre-validasi semua nilai SEBELUM menulis byte apa pun.
+  // Lebar field DBF = BYTE (CPG UTF-8): "—" = 3 byte, "é" = 2 byte.
   for (const rec of records) {
     for (const f of fields) {
-      if (f.type === 'C') {
-        const s = String(rec[f.name] ?? '')
-        if (s.length > f.length) {
-          throw new Error(
-            `DBF field "${f.name}": nilai ${s.length} char > lebar field ${f.length}. Nilai: "${s}"`,
-          )
-        }
+      const byteLen = dbfByteLength(f, rec[f.name])
+      if (byteLen > f.length) {
+        throw new Error(
+          `DBF field "${f.name}": nilai ${byteLen} byte > lebar field ${f.length} byte — persingkat teks / kurangi karakter non-ASCII.`,
+        )
       }
     }
   }

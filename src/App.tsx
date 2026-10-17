@@ -1,27 +1,20 @@
+/**
+ * AMDALNET Mapper — arah C "Sketsa Murni".
+ * Shell: header ramping + sidebar slot (Profil + 5 konten upload amdalnet)
+ * + peta. Mesin (SHP writer, validasi, BIG, ekspor) tidak berubah.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type L from 'leaflet'
 import { toast } from 'sonner'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { FileDown, FolderOpen, Moon, RotateCcw, Save, Sun } from 'lucide-react'
+import { FolderOpen, Moon, PanelBottom, RotateCcw, Save, Sun } from 'lucide-react'
 import MapPanel from '@/components/MapPanel'
 import type { AdminPick, DrawMode } from '@/components/MapPanel'
-import ProfilePanel from '@/components/ProfilePanel'
-import FeatureTable from '@/components/FeatureTable'
-import ValidationPanel from '@/components/ValidationPanel'
-import FolderExportDialog from '@/components/FolderExportDialog'
-import ExportDialog from '@/components/ExportDialog'
-import Stepper from '@/components/Stepper'
-import type { StepKey } from '@/components/Stepper'
-import { LAYERS, LAYER_BY_KEY } from '@/lib/layers'
+import SlotSidebar from '@/components/SlotSidebar'
+import type { AccKey } from '@/components/SlotSidebar'
+import PasteDialog from '@/components/PasteDialog'
+import ImportDialog from '@/components/ImportDialog'
+import { LAYER_BY_KEY } from '@/lib/layers'
 import type { LayerKey } from '@/lib/layers'
 import type { Geom } from '@/lib/geo'
 import { fetchWilayahGeometry, reverseGeocode, wilayahLabel } from '@/lib/big'
@@ -29,7 +22,6 @@ import type { Wilayah } from '@/lib/big'
 import { useTheme } from '@/lib/theme'
 import {
   emptyProject,
-  featuresOf,
   issueCount,
   loadLocal,
   makeFeature,
@@ -39,35 +31,38 @@ import {
   validateProject,
 } from '@/lib/project'
 import type { Feature, Issue, Project } from '@/lib/project'
-import { buildLayerPdf, buildLayerZip, downloadBlob, exportAll } from '@/lib/export'
+import {
+  buildLayerPdf,
+  buildLayerZip,
+  downloadBlob,
+  exportFolderZip,
+} from '@/lib/export'
 import type { ImportedFeature } from '@/lib/import'
-import { exportToFolder } from '@/lib/folder-export'
 
 export default function App() {
   const { theme, toggle } = useTheme()
   const [project, setProject] = useState<Project>(() => loadLocal() ?? emptyProject())
   const [activeLayer, setActiveLayer] = useState<LayerKey>('titik-pantau')
+  const [openAcc, setOpenAcc] = useState<AccKey | null>('titik-pantau')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [drawMode, setDrawMode] = useState<DrawMode>('none')
+  const [drawLayer, setDrawLayer] = useState<LayerKey | null>(null)
   const [exporting, setExporting] = useState<string | null>(null)
-  const [folderExportOpen, setFolderExportOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
+  const [pasteSlot, setPasteSlot] = useState<LayerKey | null>(null)
+  const [importSlot, setImportSlot] = useState<LayerKey | null>(null)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
-  // stepper alur kerja
-  const [step, setStep] = useState<StepKey>('profil')
-  const [highlight, setHighlight] = useState<'profil' | 'gambar' | 'validasi' | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(true)
   // pencarian wilayah BIG + mode info administrasi
   const [wilayahBoundary, setWilayahBoundary] = useState<Wilayah | null>(null)
   const [infoMode, setInfoMode] = useState(false)
   const [adminPick, setAdminPick] = useState<AdminPick | null>(null)
-  // tab panel untuk mobile
-  const [mobileTab, setMobileTab] = useState<'peta' | 'profil' | 'data' | 'validasi'>('peta')
 
   const mapRef = useRef<L.Map | null>(null)
   const mapElRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // autosave (debounce) — indikator "tersimpan otomatis" ikut diperbarui
+  // autosave (debounce)
   useEffect(() => {
     const t = setTimeout(() => {
       saveLocal(project)
@@ -77,45 +72,30 @@ export default function App() {
   }, [project])
 
   const issues = useMemo(() => validateProject(project), [project])
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const def of LAYERS) c[def.key] = featuresOf(project, def.key).length
-    return c
-  }, [project])
+  const { errors: totalErrors } = issueCount(issues)
 
-  const updateProfile = useCallback((patch: Partial<Project>) => {
-    setProject((p) => ({ ...p, ...patch }))
+  // ── fitur ──
+  const addFeature = useCallback((geom: Geom, layer: LayerKey) => {
+    setProject((p) => ({
+      ...p,
+      features: [...p.features, makeFeature(layer, geom)],
+    }))
   }, [])
 
-  const addFeature = useCallback(
-    (geom: Geom) => {
-      setProject((p) => ({
-        ...p,
-        features: [...p.features, makeFeature(activeLayer, geom)],
-      }))
-    },
-    [activeLayer],
-  )
-
   const addFeaturesFromPaste = useCallback(
-    (pts: { lon: number; lat: number }[], kodePrefix: string) => {
+    (pts: { lon: number; lat: number }[], kodePrefix: string, layer: LayerKey) => {
       setProject((p) => ({
         ...p,
         features: [
           ...p.features,
           ...pts.map((pt, i) =>
-            makeFeature(
-              activeLayer,
-              { type: 'Point', c: pt },
-              kodePrefix ? `${kodePrefix}${i + 1}` : '',
-              '',
-            ),
+            makeFeature(layer, { type: 'Point', c: pt }, kodePrefix ? `${kodePrefix}${i + 1}` : '', ''),
           ),
         ],
       }))
-      toast.success(`${pts.length} titik ditambahkan ke ${LAYER_BY_KEY[activeLayer].fileName}`)
+      toast.success(`${pts.length} titik ditambahkan ke ${LAYER_BY_KEY[layer].fileName}`)
     },
-    [activeLayer],
+    [],
   )
 
   const updateFeature = useCallback((id: string, patch: Partial<Feature>) => {
@@ -125,23 +105,16 @@ export default function App() {
     }))
   }, [])
 
-  const importFeatures = useCallback(
-    (imported: ImportedFeature[]) => {
-      setProject((p) => ({
-        ...p,
-        features: [
-          ...p.features,
-          ...imported.map((f) =>
-            makeFeature(activeLayer, f.geom, f.kode, f.keterangan),
-          ),
-        ],
-      }))
-      toast.success(
-        `${imported.length} fitur diimpor ke ${LAYER_BY_KEY[activeLayer].fileName}`,
-      )
-    },
-    [activeLayer],
-  )
+  const importFeatures = useCallback((imported: ImportedFeature[], layer: LayerKey) => {
+    setProject((p) => ({
+      ...p,
+      features: [
+        ...p.features,
+        ...imported.map((f) => makeFeature(layer, f.geom, f.kode, f.keterangan)),
+      ],
+    }))
+    toast.success(`${imported.length} fitur diimpor ke ${LAYER_BY_KEY[layer].fileName}`)
+  }, [])
 
   const deleteFeature = useCallback(
     (id: string) => {
@@ -149,35 +122,81 @@ export default function App() {
       if (!doomed) return
       setProject((p) => ({ ...p, features: p.features.filter((f) => f.id !== id) }))
       setSelectedId((s) => (s === id ? null : s))
+      if (editingId === id) setEditingId(null)
       toast.success('Fitur dihapus', {
         action: {
           label: 'Urungkan',
-          onClick: () =>
-            setProject((p) => ({ ...p, features: [...p.features, doomed] })),
+          onClick: () => setProject((p) => ({ ...p, features: [...p.features, doomed] })),
         },
       })
     },
-    [project],
+    [project, editingId],
   )
 
-  const startDraw = useCallback((mode: 'point' | 'polygon') => {
-    setDrawMode((m) => (m === mode ? 'none' : mode))
-    setSelectedId(null)
+  // ── gambar & edit ──
+  const handleToggleDraw = useCallback(
+    (layer: LayerKey) => {
+      const mode = LAYER_BY_KEY[layer].geometry === 'point' ? 'point' : 'polygon'
+      if (drawMode === mode && drawLayer === layer) {
+        setDrawMode('none')
+        setDrawLayer(null)
+      } else {
+        setEditingId(null)
+        setSelectedId(null)
+        setDrawLayer(layer)
+        setActiveLayer(layer)
+        setDrawMode(mode)
+      }
+    },
+    [drawMode, drawLayer],
+  )
+
+  const handleStartEdit = useCallback((id: string) => {
+    setEditingId(id)
+    setSelectedId(id)
+    setDrawMode('none')
+    setDrawLayer(null)
+  }, [])
+
+  const handleMoveFeature = useCallback(
+    (id: string, lon: number, lat: number) => {
+      updateFeature(id, { geom: { type: 'Point', c: { lon, lat } } })
+    },
+    [updateFeature],
+  )
+
+  // ── accordion ──
+  const handleToggleAcc = useCallback((key: AccKey) => {
+    setOpenAcc((cur) => (cur === key ? null : key))
+    if (key !== 'profil') setActiveLayer(key)
+  }, [])
+
+  // ── validasi per slot ──
+  const layerErrorCount = useCallback(
+    (layer: LayerKey): number =>
+      issues.filter((i) => i.level === 'error' && (i.layer === 'profil' || i.layer === layer)).length,
+    [issues],
+  )
+  const layerIssues = useCallback(
+    (layer: LayerKey): Issue[] => issues.filter((i) => i.layer === layer),
+    [issues],
+  )
+
+  const handleLocateIssue = useCallback((issue: Issue) => {
+    if (issue.layer !== 'profil') {
+      setActiveLayer(issue.layer as LayerKey)
+      setOpenAcc(issue.layer as LayerKey)
+    } else {
+      setOpenAcc('profil')
+    }
+    if (issue.featureId) setSelectedId(issue.featureId)
+    setSheetOpen(true)
   }, [])
 
   // ── ekspor ──
-  /** Error validasi yang menyentuh layer aktif atau profil (wajib bersih sebelum ekspor layer). */
-  const layerExportErrors = useCallback(
-    (layer: LayerKey): number =>
-      validateProject(project).filter(
-        (i) => i.level === 'error' && (i.layer === 'profil' || i.layer === layer),
-      ).length,
-    [project],
-  )
-
   const handleExportLayerZip = useCallback(
     async (layer: LayerKey) => {
-      const n = layerExportErrors(layer)
+      const n = layerErrorCount(layer)
       if (n > 0) {
         toast.error(
           `${n} error validasi pada ${LAYER_BY_KEY[layer].fileName} / profil — perbaiki dulu sebelum ekspor ZIP`,
@@ -186,21 +205,21 @@ export default function App() {
       }
       setExporting(`zip:${layer}`)
       try {
-        const blob = await buildLayerZip(project, layer)
-        downloadBlob(blob, `${LAYER_BY_KEY[layer].fileName}.zip`)
+          const blob = await buildLayerZip(project, layer)
+          downloadBlob(blob, `${LAYER_BY_KEY[layer].fileName}.zip`)
         toast.success(`ZIP ${LAYER_BY_KEY[layer].fileName} diunduh`)
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e))
+          toast.error(e instanceof Error ? e.message : String(e))
       } finally {
         setExporting(null)
       }
     },
-    [project, layerExportErrors],
+    [project, layerErrorCount],
   )
 
   const handleExportLayerPdf = useCallback(
     async (layer: LayerKey) => {
-      const n = layerExportErrors(layer)
+      const n = layerErrorCount(layer)
       if (n > 0) {
         toast.error(
           `${n} error validasi pada ${LAYER_BY_KEY[layer].fileName} / profil — perbaiki dulu sebelum ekspor PDF`,
@@ -219,26 +238,30 @@ export default function App() {
         setExporting(null)
       }
     },
-    [project, layerExportErrors],
+    [project, layerErrorCount],
   )
 
-  const handleExportAll = useCallback(async () => {
+  /** Bulk: amdalnet_mapper.zip → 5 folder konten, tiap folder ZIP + PDF. */
+  const handleBulkExport = useCallback(async () => {
     const { errors } = issueCount(validateProject(project))
     if (errors > 0) {
-      toast.error(`Masih ada ${errors} error validasi — perbaiki dulu sebelum export semua`)
+      toast.error(`Masih ada ${errors} error validasi — perbaiki dulu sebelum ekspor semua`)
+      return
+    }
+    if (!mapRef.current || !mapElRef.current) {
+      toast.error('Peta belum siap')
       return
     }
     setExporting('all')
     try {
-      if (!mapRef.current || !mapElRef.current) throw new Error('Peta belum siap')
-      const res = await exportAll(project, mapRef.current, mapElRef.current, (msg) =>
+      const res = await exportFolderZip(project, mapRef.current, mapElRef.current, (msg) =>
         toast.info(msg),
       )
       downloadBlob(res.blob, res.filename)
       const skipped = res.skipped.length
-        ? ` Layer kosong dilewati: ${res.skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}.`
+        ? ` Konten kosong dilewati: ${res.skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}.`
         : ''
-      toast.success(`Paket lengkap diunduh (${res.included.length} layer).${skipped}`)
+      toast.success(`amdalnet_mapper.zip diunduh (${res.included.length} konten).${skipped}`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -246,6 +269,7 @@ export default function App() {
     }
   }, [project])
 
+  // ── proyek: backup / muat / baru ──
   const handleSaveJson = useCallback(() => {
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
     downloadBlob(blob, `AMDALNET_proyek_${slugify(project.kegiatan || 'proyek')}.json`)
@@ -269,14 +293,13 @@ export default function App() {
   const handleNewProject = useCallback(() => {
     if (
       project.features.length > 0 &&
-      !window.confirm(
-        'Buat proyek baru? Semua fitur di sesi ini akan hilang (simpan JSON dulu bila perlu).',
-      )
+      !window.confirm('Buat proyek baru? Semua fitur di sesi ini akan hilang (simpan JSON dulu bila perlu).')
     ) {
       return
     }
     setProject(emptyProject())
     setSelectedId(null)
+    setEditingId(null)
     toast.info('Proyek baru dimulai')
   }, [project])
 
@@ -290,17 +313,6 @@ export default function App() {
       ),
     }))
     toast.success(`${ids.length} fitur diberi KODE ${prefix}1…${prefix}${ids.length}`)
-  }, [])
-
-  // ── klik issue validasi → pindah layer + zoom ke fitur ──
-  const handleLocateIssue = useCallback((issue: Issue) => {
-    if (issue.layer !== 'profil') {
-      setActiveLayer(issue.layer as LayerKey)
-    }
-    if (issue.featureId) {
-      setSelectedId(issue.featureId)
-    }
-    setMobileTab('peta')
   }, [])
 
   // ── navigasi peta ──
@@ -329,7 +341,6 @@ export default function App() {
         setWilayahBoundary(null)
         return
       }
-      // tahap 2: ambil geometri batas (tahap 1 hanya atribut ringan)
       toast.info(`Memuat batas ${wilayahLabel(w)}…`)
       try {
         const full = await fetchWilayahGeometry(w)
@@ -339,9 +350,7 @@ export default function App() {
         toast.success(`Batas ${wilayahLabel(full)} ditampilkan — profil terisi otomatis`)
       } catch (e) {
         if (wilayahSeqRef.current !== seq) return
-        toast.error(
-          `Gagal memuat batas wilayah: ${e instanceof Error ? e.message : 'coba lagi'}`,
-        )
+        toast.error(`Gagal memuat batas wilayah: ${e instanceof Error ? e.message : 'coba lagi'}`)
       }
     },
     [applyWilayahToProfile],
@@ -352,19 +361,10 @@ export default function App() {
     setAdminPick({ lon, lat, loading: true, wilayah: null, error: '' })
     try {
       const w = await reverseGeocode(lon, lat)
-      setAdminPick({
-        lon,
-        lat,
-        loading: false,
-        wilayah: w,
-        error: w ? '' : 'Titik di luar cakupan data BIG.',
-      })
+      setAdminPick({ lon, lat, loading: false, wilayah: w, error: w ? '' : 'Titik di luar cakupan data BIG.' })
     } catch (e) {
       setAdminPick({
-        lon,
-        lat,
-        loading: false,
-        wilayah: null,
+        lon, lat, loading: false, wilayah: null,
         error: e instanceof Error ? e.message : 'Gagal memuat data wilayah.',
       })
     }
@@ -380,90 +380,68 @@ export default function App() {
     [applyWilayahToProfile],
   )
 
-  // ── stepper ──
-  const { errors: validationErrors } = issueCount(issues)
-  const stepDone: Record<StepKey, boolean> = {
-    profil: !!(project.pemrakarsa && project.kegiatan && project.tahun && project.provinsi),
-    gambar: project.features.length > 0,
-    validasi: project.features.length > 0 && validationErrors === 0,
-    ekspor: false,
-  }
-  const handleStepSelect = useCallback((s: StepKey) => {
-    setStep(s)
-    if (s === 'ekspor') {
-      setExportOpen(true)
-      return
-    }
-    setHighlight(s)
-    if (s === 'profil') setMobileTab('profil')
-    else if (s === 'gambar') setMobileTab('peta')
-    else if (s === 'validasi') setMobileTab('validasi')
+  const updateProfile = useCallback((patch: Partial<Project>) => {
+    setProject((p) => ({ ...p, ...patch }))
   }, [])
 
-  // ── ekspor per-layer langsung ke folder proyek ──
-  const handleFolderExport = useCallback(
-    async (subPath: string, include: LayerKey[]) => {
-      if (!mapRef.current || !mapElRef.current) {
-        toast.error('Peta belum siap')
-        return
-      }
-      const { errors } = issueCount(validateProject(project))
-      if (errors > 0) {
-        toast.error(`Masih ada ${errors} error validasi — perbaiki dulu sebelum ekspor`)
-        return
-      }
-      setExporting('folder')
-      try {
-        const res = await exportToFolder({
-          project,
-          subPath,
-          map: mapRef.current,
-          mapEl: mapElRef.current,
-          include,
-          onProgress: (msg) => toast.info(msg),
-        })
-        updateProfile({ exportSubPath: subPath })
-        const skipped = res.skipped.length
-          ? ` Dilewati: ${res.skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}.`
-          : ''
-        toast.success(
-          `${res.written.length} folder layer ditulis ke ${subPath}/.${skipped}`,
-        )
-        setFolderExportOpen(false)
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e))
-      } finally {
-        setExporting(null)
-      }
-    },
-    [project, updateProfile],
+  const sidebar = (
+    <SlotSidebar
+      project={project}
+      onChangeProfile={updateProfile}
+      openAcc={openAcc}
+      onToggleAcc={handleToggleAcc}
+      drawMode={drawMode}
+      drawLayer={drawLayer}
+      onToggleDraw={handleToggleDraw}
+      onOpenPaste={setPasteSlot}
+      onOpenImport={setImportSlot}
+      selectedId={selectedId}
+      onSelect={setSelectedId}
+      editingId={editingId}
+      onStartEdit={handleStartEdit}
+      onCancelEdit={() => setEditingId(null)}
+      onSaveEdit={(id, kode, keterangan) => {
+        updateFeature(id, { kode, keterangan })
+        setEditingId(null)
+      }}
+      onDelete={deleteFeature}
+      onExportZip={handleExportLayerZip}
+      onExportPdf={handleExportLayerPdf}
+      exporting={exporting}
+      layerErrorCount={layerErrorCount}
+      layerIssues={layerIssues}
+      onLocateIssue={handleLocateIssue}
+      onBulkKode={handleBulkKode}
+      totalFeatures={project.features.length}
+      totalErrors={totalErrors}
+      onBulkExport={handleBulkExport}
+    />
   )
 
   return (
-    <div className="bg-muted/30 flex h-screen flex-col">
-      <header className="bg-background flex h-14 shrink-0 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-sm font-semibold">AMDALNET Mapper</h1>
-            <p className="text-muted-foreground text-xs">
-              Peta Titik &amp; Area Kelola/Pantau — paket SHP + PDF siap upload amdalnet
-            </p>
-          </div>
-          {project.kegiatan && (
-            <Badge variant="secondary" className="hidden md:inline-flex">
-              {project.kegiatan}
-            </Badge>
-          )}
+    <div className="bg-background text-foreground flex h-dvh flex-col overflow-hidden">
+      <header className="border-border flex h-14 flex-none items-center justify-between border-b px-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 md:hidden"
+            onClick={() => setSheetOpen((v) => !v)}
+            title="Panel konten"
+          >
+            <PanelBottom className="h-5 w-5" />
+          </Button>
+          <h1 className="truncate text-[15px] font-semibold tracking-tight">AMDALNET Mapper</h1>
           {lastSaved && (
             <span className="text-muted-foreground hidden text-[11px] lg:inline">
-              Tersimpan otomatis • {lastSaved}
+              Tersimpan otomatis · {lastSaved}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-0.5">
           <Button
             size="icon"
-            variant="outline"
+            variant="ghost"
             className="h-8 w-8"
             title={theme === 'dark' ? 'Mode terang' : 'Mode gelap'}
             onClick={toggle}
@@ -471,23 +449,22 @@ export default function App() {
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
           <Button
-            size="sm"
-            variant="outline"
+            size="icon"
+            variant="ghost"
+            className="hidden h-8 w-8 sm:inline-flex"
             onClick={handleSaveJson}
-            title="Unduh arsip proyek sebagai JSON (data sudah tersimpan otomatis di browser)"
-            className="hidden sm:inline-flex"
+            title="Backup proyek sebagai JSON"
           >
-            <Save className="mr-1 h-3.5 w-3.5" />
-            Backup
+            <Save className="h-4 w-4" />
           </Button>
           <Button
-            size="sm"
-            variant="outline"
+            size="icon"
+            variant="ghost"
+            className="hidden h-8 w-8 sm:inline-flex"
             onClick={() => fileInputRef.current?.click()}
-            className="hidden sm:inline-flex"
+            title="Muat proyek dari JSON"
           >
-            <FolderOpen className="mr-1 h-3.5 w-3.5" />
-            Muat
+            <FolderOpen className="h-4 w-4" />
           </Button>
           <input
             ref={fileInputRef}
@@ -501,203 +478,99 @@ export default function App() {
             }}
           />
           <Button
-            size="sm"
-            variant="outline"
+            size="icon"
+            variant="ghost"
+            className="hidden h-8 w-8 sm:inline-flex"
             onClick={handleNewProject}
-            className="hidden sm:inline-flex"
+            title="Proyek baru"
           >
-            <RotateCcw className="mr-1 h-3.5 w-3.5" />
-            Baru
-          </Button>
-          <Button size="sm" onClick={() => setExportOpen(true)} disabled={exporting !== null} className="ml-1">
-            <FileDown className="mr-1 h-3.5 w-3.5" />
-            Ekspor
+            <RotateCcw className="h-4 w-4" />
           </Button>
         </div>
       </header>
 
-      {/* stepper alur kerja */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-1.5 sm:px-4">
-        <Stepper
-          active={step}
-          done={stepDone}
-          errorCount={validationErrors}
-          onSelect={handleStepSelect}
-        />
+      <div className="flex min-h-0 flex-1">
+        <aside className="border-border hidden w-[320px] flex-none border-r md:block">
+          {sidebar}
+        </aside>
+        <main className="relative min-w-0 flex-1">
+          <div className="absolute inset-0 flex flex-col">
+            <MapPanel
+              project={project}
+              activeLayer={activeLayer}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              drawMode={drawMode}
+              onAddFeature={(geom) => {
+                if (drawLayer) addFeature(geom, drawLayer)
+              }}
+              onExitDraw={() => {
+                setDrawMode('none')
+                setDrawLayer(null)
+              }}
+              mapRef={mapRef}
+              mapElRef={mapElRef}
+              wilayah={wilayahBoundary}
+              onFlyTo={handleFlyTo}
+              onWilayah={handleWilayah}
+              infoMode={infoMode}
+              onToggleInfoMode={() => {
+                setInfoMode((v) => !v)
+                setAdminPick(null)
+              }}
+              onPickAdmin={handlePickAdmin}
+              adminPick={adminPick}
+              onCloseAdmin={() => setAdminPick(null)}
+              onUseAdmin={handleUseAdmin}
+              editingId={editingId}
+              onMoveFeature={handleMoveFeature}
+            />
+          </div>
+
+          {/* bottom sheet — mobile */}
+          {sheetOpen && (
+            <div className="fixed inset-0 z-[1100] md:hidden">
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={() => setSheetOpen(false)}
+                aria-hidden
+              />
+              <div className="bg-background border-border absolute inset-x-0 bottom-0 flex h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t">
+                <button
+                  type="button"
+                  className="flex-none py-2.5"
+                  onClick={() => setSheetOpen(false)}
+                  aria-label="Tutup panel"
+                >
+                  <span className="bg-border mx-auto block h-1 w-10 rounded-full" />
+                </button>
+                <div className="min-h-0 flex-1">{sidebar}</div>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
 
-      <main className="flex min-h-0 flex-1 flex-col p-2 lg:grid lg:grid-cols-[300px_1fr_360px] lg:gap-3 lg:p-3">
-        {/* tab panel untuk mobile */}
-        <div className="mb-2 flex shrink-0 gap-1 lg:hidden" role="tablist" aria-label="Panel">
-          {(
-            [
-              ['peta', 'Peta'],
-              ['profil', 'Profil'],
-              ['data', 'Data'],
-              ['validasi', 'Validasi'],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={mobileTab === key}
-              onClick={() => setMobileTab(key)}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${
-                mobileTab === key
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'bg-background text-muted-foreground'
-              }`}
-            >
-              {label}
-              {key === 'validasi' && validationErrors > 0 && ` (${validationErrors})`}
-            </button>
-          ))}
-        </div>
-
-        <div
-          className={`${mobileTab === 'profil' ? 'flex' : 'hidden'} min-h-0 flex-col gap-3 overflow-y-auto lg:flex ${
-            highlight === 'profil' ? 'rounded-lg ring-2 ring-primary ring-offset-2' : ''
-          }`}
-        >
-          <ProfilePanel project={project} onChange={updateProfile} />
-          <div className="hidden lg:block">
-            <ValidationPanel issues={issues} onLocate={handleLocateIssue} />
-          </div>
-        </div>
-
-        <div
-          className={`${mobileTab === 'peta' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col gap-3 lg:flex ${
-            highlight === 'gambar' ? 'rounded-lg ring-2 ring-primary ring-offset-2' : ''
-          }`}
-        >
-          {/* pemilih layer: dropdown compact di HP, tab di desktop */}
-          <div className="sm:hidden">
-            <Select
-              value={activeLayer}
-              onValueChange={(v) => {
-                setActiveLayer(v as LayerKey)
-                setDrawMode('none')
-                setSelectedId(null)
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LAYERS.map((def) => (
-                  <SelectItem key={def.key} value={def.key}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2 w-2 rounded-full"
-                        style={{ background: def.color }}
-                      />
-                      {def.label}
-                      <span className="text-muted-foreground tabular-nums">
-                        ({counts[def.key]})
-                      </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Tabs
-            value={activeLayer}
-            onValueChange={(v) => {
-              setActiveLayer(v as LayerKey)
-              setDrawMode('none')
-              setSelectedId(null)
-            }}
-            className="hidden sm:block"
-          >
-            <TabsList className="w-full">
-              {LAYERS.map((def) => (
-                <TabsTrigger key={def.key} value={def.key} className="flex-1 gap-1.5 text-xs">
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: def.color }}
-                  />
-                  {def.label}
-                  <span className="text-muted-foreground tabular-nums">{counts[def.key]}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <MapPanel
-            project={project}
-            activeLayer={activeLayer}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            drawMode={drawMode}
-            onAddFeature={addFeature}
-            onExitDraw={() => setDrawMode('none')}
-            mapRef={mapRef}
-            mapElRef={mapElRef}
-            wilayah={wilayahBoundary}
-            onFlyTo={handleFlyTo}
-            onWilayah={handleWilayah}
-            infoMode={infoMode}
-            onToggleInfoMode={() => {
-              setInfoMode((v) => !v)
-              setAdminPick(null)
-            }}
-            onPickAdmin={handlePickAdmin}
-            adminPick={adminPick}
-            onCloseAdmin={() => setAdminPick(null)}
-            onUseAdmin={handleUseAdmin}
-          />
-        </div>
-
-        <div className={`${mobileTab === 'data' ? 'flex' : 'hidden'} min-h-0 lg:flex`}>
-          <FeatureTable
-            project={project}
-            activeLayer={activeLayer}
-            selectedId={selectedId}
-            drawMode={drawMode}
-            onSelect={setSelectedId}
-            onUpdateFeature={updateFeature}
-            onDeleteFeature={deleteFeature}
-            onStartDraw={startDraw}
-            onAddFeatures={addFeaturesFromPaste}
-            onImportFeatures={importFeatures}
-            onOpenExport={() => setExportOpen(true)}
-            onBulkKode={handleBulkKode}
-            exporting={exporting}
-          />
-        </div>
-
-        {/* validasi khusus mobile (di desktop menempel di kolom kiri) */}
-        <div
-          className={`${mobileTab === 'validasi' ? 'block' : 'hidden'} min-h-0 overflow-y-auto lg:hidden ${
-            highlight === 'validasi' ? 'rounded-lg ring-2 ring-primary ring-offset-2' : ''
-          }`}
-        >
-          <ValidationPanel issues={issues} onLocate={handleLocateIssue} />
-        </div>
-      </main>
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        project={project}
-        counts={counts}
-        errorCount={validationErrors}
-        exporting={exporting}
-        onExportLayerZip={handleExportLayerZip}
-        onExportLayerPdf={handleExportLayerPdf}
-        onExportAll={handleExportAll}
-        onOpenFolderExport={() => {
-          setExportOpen(false)
-          setFolderExportOpen(true)
+      <PasteDialog
+        open={pasteSlot !== null}
+        onOpenChange={(v) => !v && setPasteSlot(null)}
+        onAdd={(pts, prefix) => {
+          if (pasteSlot) addFeaturesFromPaste(pts, prefix, pasteSlot)
+          setPasteSlot(null)
         }}
       />
-      <FolderExportDialog
-        open={folderExportOpen}
-        onOpenChange={setFolderExportOpen}
-        subPath={project.exportSubPath}
-        counts={counts}
-        busy={exporting === 'folder'}
-        onExport={handleFolderExport}
-      />
+      {importSlot && (
+        <ImportDialog
+          open
+          onOpenChange={(v) => !v && setImportSlot(null)}
+          geometryKind={LAYER_BY_KEY[importSlot].geometry}
+          layerName={LAYER_BY_KEY[importSlot].fileName}
+          onImport={(imported) => {
+            importFeatures(imported, importSlot)
+            setImportSlot(null)
+          }}
+        />
+      )}
     </div>
   )
 }

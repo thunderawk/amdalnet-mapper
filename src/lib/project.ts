@@ -151,25 +151,27 @@ export function validateProject(project: Project): Issue[] {
     issues.push({ level: 'error', layer: 'profil', message: 'Tipe dokumen harus "Amdal" atau "UKL-UPL"' })
   }
 
-  // cek lebar field PEMRAKARSA/KEGIATAN terhadap skema tiap layer
+  // cek lebar field PEMRAKARSA/KEGIATAN terhadap skema tiap layer.
+  // Lebar DBF = BYTE (UTF-8): karakter non-ASCII memakan >1 byte.
+  const byteLen = (s: string): number => new TextEncoder().encode(s).length
   for (const f of p.features) {
     const def = LAYER_BY_KEY[f.layer]
     const pemrField = def.fields.find((x) => x.name === 'PEMRAKARSA')!
     const kegField = def.fields.find((x) => x.name === 'KEGIATAN')!
-    if (p.pemrakarsa.length > pemrField.length) {
+    if (byteLen(p.pemrakarsa) > pemrField.length) {
       issues.push({
         level: 'error',
         layer: f.layer,
         featureId: f.id,
-        message: `Pemrakarsa ${p.pemrakarsa.length} char > lebar field ${def.fileName} (${pemrField.length})`,
+        message: `Pemrakarsa ${byteLen(p.pemrakarsa)} byte > lebar field ${def.fileName} (${pemrField.length})`,
       })
     }
-    if (p.kegiatan.length > kegField.length) {
+    if (byteLen(p.kegiatan) > kegField.length) {
       issues.push({
         level: 'error',
         layer: f.layer,
         featureId: f.id,
-        message: `Kegiatan ${p.kegiatan.length} char > lebar field ${def.fileName} (${kegField.length})`,
+        message: `Kegiatan ${byteLen(p.kegiatan)} byte > lebar field ${def.fileName} (${kegField.length})`,
       })
     }
     // Panduan Tapak v2.5 tidak mengenal KODE — lewati untuk layer tapak
