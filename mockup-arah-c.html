@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AMDALNET Mapper — Mockup Arah C</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* ============ TOKEN (alasan tiap nilai: mockups/DESIGN-NOTES.md) ============ */
+:root{
+  --bg:#F4F4F5; --surface:#FFFFFF;
+  --border:#E4E4E7; --border-strong:#D4D4D8;
+  --text:#18181B; --text-2:#52525B; --text-3:#71717A;
+  --primary:#18181B; --primary-text:#FAFAFA;
+  --danger:#DC2626;
+  --r-lg:10px; --r-md:8px; --r-full:999px;
+  --ease:cubic-bezier(0.2,0,0,1);
+  --shadow-float:0 1px 2px rgb(0 0 0 / .06), 0 8px 24px rgb(0 0 0 / .08);
+  --slot-tapak:#7C3AED; --slot-tkelola:#EA580C; --slot-tpantau:#2563EB;
+  --slot-akelola:#D97706; --slot-apantau:#0D9488;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+html{background:var(--bg);}
+body{
+  margin:0; font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:13px;
+  color:var(--text); background:var(--bg); line-height:1.5;
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+button{font:inherit; color:inherit; background:none; border:none; padding:0; cursor:pointer;}
+input,textarea{font:inherit; color:inherit;}
+:focus-visible{outline:2px solid var(--text); outline-offset:2px;}
+
+/* ============ APP SHELL — fallback tinggi berlapis untuk webview HP ============ */
+.app{display:flex; flex-direction:column; height:100vh; height:100dvh; height:var(--app-height,100dvh); min-height:100vh;}
+.app-body{display:flex; flex:1; min-height:0; position:relative;}
+
+/* ============ HEADER ============ */
+.hdr{
+  height:56px; flex:none; display:flex; align-items:center; gap:12px;
+  padding:0 16px; background:var(--surface); border-bottom:1px solid var(--border);
+}
+.hdr-title{font-size:15px; font-weight:600; letter-spacing:-0.01em; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.hdr-right{margin-left:auto; display:flex; align-items:center; gap:8px;}
+.mock-tag{
+  font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--text-2); border:1px solid var(--border); border-radius:var(--r-full);
+  padding:3px 10px; background:var(--bg); white-space:nowrap;
+}
+.icon-btn{
+  width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center;
+  border-radius:var(--r-md); color:var(--text-2); border:1px solid transparent;
+  transition:background-color 150ms var(--ease), color 150ms var(--ease);
+}
+@media (hover:hover){ .icon-btn:hover{background:var(--bg); color:var(--text);} }
+.icon-btn:active{transform:scale(.96);}
+.sheet-toggle{display:none;}
+
+/* ============ SIDEBAR ============ */
+.side{
+  width:320px; flex:none; background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; min-height:0; position:relative; z-index:1100;
+}
+.side-scroll{flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;}
+.side-foot{
+  flex:none; border-top:1px solid var(--border); background:var(--surface);
+  padding:16px;
+}
+
+/* ============ ACCORDION (shadcn-style) ============ */
+/* Terbuka: isi scroll di dalam areanya sendiri (ala panel chat) — header lain + footer selalu kelihatan */
+.acc{border-bottom:1px solid var(--border); flex:0 0 auto; display:flex; flex-direction:column; min-height:0; max-height:100%;}
+.acc.open{flex:0 1 auto;}
+.acc-head{
+  width:100%; display:flex; align-items:center; gap:10px; padding:12px 16px;
+  font-size:13px; font-weight:500; text-align:start; flex:none;
+  transition:background-color 150ms var(--ease);
+}
+@media (hover:hover){ .acc-head:hover{background:#FAFAFA;} }
+.acc-dot{width:8px; height:8px; border-radius:50%; flex:none; background:var(--c,#A1A1AA);}
+.acc-name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.acc-count{
+  font-size:11px; color:var(--text-3); font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.acc-chev{
+  width:22px; height:22px; flex:none; border:1px solid var(--border-strong); border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center; color:var(--text-2);
+  transition:transform 200ms var(--ease), background-color 150ms var(--ease);
+}
+.acc-head[aria-expanded="true"] .acc-chev{transform:rotate(180deg);}
+.acc-body{display:grid; grid-template-rows:0fr; transition:grid-template-rows 200ms var(--ease); min-height:0;}
+.acc-head[aria-expanded="true"] + .acc-body{grid-template-rows:1fr;}
+.acc-inner{overflow:hidden; min-height:0;}
+.acc.open .acc-inner{overflow-y:auto; overscroll-behavior:contain;}
+.acc-content{padding:4px 16px 16px;}
+@media (prefers-reduced-motion:reduce){
+  .acc-body,.acc-chev{transition:none;}
+}
+
+/* profil rows */
+.kv{display:flex; gap:12px; padding:7px 0; font-size:13px; border-bottom:1px dashed var(--border);}
+.kv:last-of-type{border-bottom:none;}
+.kv-k{width:104px; flex:none; color:var(--text-3);}
+.kv-v{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+/* ============ TOGGLE GROUP — tombol ikon mode input ============ */
+.tgroup{display:flex; gap:8px; margin:0 0 10px;}
+.tbtn{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding:10px 4px; border:1px solid var(--border); border-radius:var(--r-md);
+  background:var(--surface); color:var(--text-2);
+  transition:border-color 150ms var(--ease), background-color 150ms var(--ease), color 150ms var(--ease), transform 150ms var(--ease);
+}
+.tbtn svg{width:20px; height:20px;}
+.tbtn span{font-size:12px; font-weight:500; line-height:1.2;}
+@media (hover:hover){ .tbtn:hover{border-color:var(--border-strong); color:var(--text);} }
+.tbtn:active{transform:scale(.96);}
+.tbtn[aria-pressed="true"]{border-color:var(--text); color:var(--text); background:#FAFAFA;}
+
+/* ============ FEATURE ROWS ============ */
+.frow{border-top:1px solid var(--border); padding:10px 0;}
+.frow-top{display:flex; align-items:flex-start; gap:8px;}
+.frow-id{flex:1; min-width:0;}
+.frow-kode{font-size:13px; font-weight:600;}
+.frow-ket{
+  font-size:12px; color:var(--text-2); margin-top:2px;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
+}
+.frow-actions{display:flex; gap:6px; flex:none;}
+.empty{
+  padding:20px 12px; text-align:center; color:var(--text-3); font-size:13px;
+  border:1px dashed var(--border); border-radius:var(--r-md); margin:8px 0;
+}
+
+/* ============ BUTTONS (shadcn variants) ============ */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  font-size:12.5px; font-weight:500; border-radius:var(--r-md);
+  padding:7px 12px; border:1px solid transparent; white-space:nowrap;
+  transition:background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease), transform 150ms var(--ease);
+}
+.btn:active:not(:disabled){transform:scale(.96);}
+.btn svg{width:15px; height:15px;}
+.btn-primary{background:var(--primary); color:var(--primary-text);}
+@media (hover:hover){ .btn-primary:hover{background:#27272A;} }
+.btn-outline{border-color:var(--border-strong); color:var(--text); background:var(--surface);}
+@media (hover:hover){ .btn-outline:hover{background:#FAFAFA;} }
+.btn-ghost{color:var(--text-2);}
+@media (hover:hover){ .btn-ghost:hover{background:var(--bg); color:var(--text);} }
+.btn-danger-ghost{color:var(--text-2);}
+@media (hover:hover){ .btn-danger-ghost:hover{color:var(--danger); background:#FEF2F2;} }
+.btn-sm{padding:5px 10px; font-size:12px; border-radius:var(--r-full);}
+.btn-block{width:100%; padding:10px;}
+.btn:disabled{opacity:.45; cursor:not-allowed;}
+
+/* ============ FORM ============ */
+.field{margin-bottom:12px;}
+.field label{display:block; font-size:12px; font-weight:500; color:var(--text-2); margin-bottom:5px;}
+.input,textarea.input{
+  width:100%; border:1px solid var(--border-strong); border-radius:var(--r-md);
+  padding:8px 10px; font-size:14px; background:var(--surface);
+  transition:border-color 150ms var(--ease);
+}
+.input:focus{outline:none; border-color:var(--text);}
+.hint{display:flex; gap:6px; align-items:flex-start; font-size:12px; color:var(--text-2); margin:8px 0 12px;}
+.hint svg{width:14px; height:14px; flex:none; margin-top:2px;}
+.char-count{font-size:11px; color:var(--text-3); text-align:end; margin-top:4px; font-variant-numeric:tabular-nums;}
+.char-count.over{color:var(--danger); font-weight:600;}
+
+/* edit inline */
+.editbox{background:#FAFAFA; border:1px solid var(--border); border-radius:var(--r-lg); padding:12px; margin-top:8px;}
+.edit-actions{display:flex; gap:8px; justify-content:flex-end;}
+
+/* ============ EXPORT ROW ============ */
+.exp-row{display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);}
+.exp-label{font-size:12px; color:var(--text-2); flex:1;}
+
+/* ============ BULK EXPORT ============ */
+.bulk-title{font-size:13px; font-weight:600; margin:0 0 4px; display:flex; align-items:center; gap:8px;}
+.bulk-sub{font-size:12px; color:var(--text-2); margin:0 0 12px; font-variant-numeric:tabular-nums;}
+
+/* ============ MAP ============ */
+.mapwrap{flex:1; min-width:0; position:relative; background:#E7E5E4;}
+#map{position:absolute; inset:0;}
+.leaflet-container{font-family:inherit;}
+/* kontrol zoom yang tenang */
+.leaflet-bar{border:1px solid var(--border) !important; border-radius:var(--r-md) !important; box-shadow:var(--shadow-float) !important; overflow:hidden;}
+.leaflet-bar a{
+  width:32px !important; height:32px !important; line-height:32px !important;
+  color:var(--text-2) !important; border-bottom:1px solid var(--border) !important;
+}
+.leaflet-bar a:last-child{border-bottom:none !important;}
+.coord-read{
+  position:absolute; left:12px; bottom:12px; z-index:500;
+  font-size:11px; background:rgb(255 255 255 / .92); border:1px solid var(--border);
+  border-radius:6px; padding:4px 8px; color:var(--text-2);
+  pointer-events:none;
+}
+.draw-hint{
+  position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:500;
+  background:var(--text); color:#FAFAFA; font-size:12px; font-weight:500;
+  border-radius:var(--r-full); padding:7px 14px; display:none; align-items:center; gap:8px;
+  box-shadow:var(--shadow-float); white-space:nowrap; max-width:calc(100% - 24px);
+}
+.draw-hint.show{display:inline-flex;}
+.draw-hint button{color:#FAFAFA; display:inline-flex; opacity:.7;}
+@media (hover:hover){ .draw-hint button:hover{opacity:1;} }
+.mk{
+  width:14px; height:14px; border-radius:50%; background:var(--c);
+  border:2.5px solid #fff; box-shadow:0 1px 4px rgb(0 0 0 / .35);
+  display:block;
+}
+.mk.sel{box-shadow:0 0 0 6px color-mix(in srgb, var(--c) 22%, transparent), 0 1px 4px rgb(0 0 0 / .35);}
+.mk.drag{cursor:grab; box-shadow:0 0 0 8px color-mix(in srgb, var(--c) 25%, transparent), 0 2px 8px rgb(0 0 0 / .4);}
+
+/* ============ DIALOG (shadcn-style) ============ */
+.scrim{
+  position:fixed; inset:0; background:rgb(0 0 0 / .45); z-index:1200;
+  display:flex; align-items:center; justify-content:center; padding:16px;
+  opacity:0; pointer-events:none; transition:opacity 150ms var(--ease);
+}
+.scrim.show{opacity:1; pointer-events:auto;}
+.dialog{
+  background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--shadow-float);
+  width:100%; max-width:440px; max-height:calc(100dvh - 48px); overflow-y:auto; overscroll-behavior:contain;
+  transform:translateY(8px) scale(.98); transition:transform 200ms var(--ease);
+}
+.scrim.show .dialog{transform:none;}
+.dlg-head{padding:16px 16px 0;}
+.dlg-title{font-size:15px; font-weight:600; margin:0;}
+.dlg-desc{font-size:13px; color:var(--text-2); margin:4px 0 0;}
+.dlg-body{padding:16px;}
+.dlg-foot{display:flex; justify-content:flex-end; gap:8px; padding:0 16px 16px;}
+@media (prefers-reduced-motion:reduce){
+  .scrim,.dialog,.tbtn,.btn,.icon-btn,.acc-chev{transition:none;}
+  .btn:active:not(:disabled),.tbtn:active,.icon-btn:active{transform:none;}
+}
+
+/* ============ TOAST ============ */
+.toast{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(16px); z-index:1300;
+  background:var(--text); color:#FAFAFA; font-size:13px; border-radius:var(--r-full);
+  padding:10px 16px; display:flex; align-items:center; gap:12px; opacity:0; pointer-events:none;
+  transition:opacity 200ms var(--ease), transform 200ms var(--ease);
+  box-shadow:var(--shadow-float); max-width:calc(100vw - 32px);
+}
+.toast.show{opacity:1; pointer-events:auto; transform:translateX(-50%);}
+.toast button{color:#FAFAFA; font-weight:600; font-size:13px; text-decoration:underline; text-underline-offset:3px;}
+
+/* ============ MOBILE ============ */
+@media (max-width:820px){
+  .sheet-toggle{display:inline-flex;}
+  .side{
+    position:fixed; left:0; right:0; bottom:0; top:auto; z-index:1100;
+    width:auto; height:62vh; height:62dvh; overflow:hidden;
+    border-right:none; border-top:1px solid var(--border);
+    border-radius:16px 16px 0 0; box-shadow:var(--shadow-float);
+    transform:translateY(calc(100% - 0px));
+    transition:transform 250ms var(--ease);
+  }
+  .side.open{transform:none;}
+  .grab{
+    flex:none; padding:10px 0 6px; display:flex; justify-content:center; cursor:grab;
+    touch-action:none;
+  }
+  .grab::before{content:""; width:40px; height:4px; border-radius:2px; background:var(--border-strong);}
+  .mapwrap{position:absolute; inset:56px 0 0 0;}
+  .app-body{display:block;}
+  .draw-hint{top:auto; bottom:14px;}
+  .input{font-size:16px;} /* cegah auto-zoom iOS */
+  .toast{bottom:calc(62dvh + 12px);}
+}
+@media (min-width:821px){ .grab{display:none;} }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ HEADER ============ -->
+  <header class="hdr">
+    <button class="icon-btn sheet-toggle" id="sheet-toggle" aria-label="Buka/tutup panel">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+    </button>
+    <h1 class="hdr-title">AMDALNET Mapper</h1>
+    <div class="hdr-right">
+      <span class="mock-tag">Mockup</span>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="side open" id="side" aria-label="Panel konten">
+      <div class="grab" id="grab"></div>
+      <div class="side-scroll" id="side-scroll"><!-- accordion di-render JS --></div>
+
+      <!-- Ekspor Semua Konten — pinned bottom -->
+      <div class="side-foot">
+        <p class="bulk-title">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+          Ekspor Semua Konten
+        </p>
+        <p class="bulk-sub" id="bulk-sub"></p>
+        <button class="btn btn-primary btn-block" id="btn-bulk">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+          Unduh ZIP
+        </button>
+      </div>
+    </aside>
+
+    <!-- ============ MAP ============ -->
+    <main class="mapwrap">
+      <div id="map" aria-label="Peta"></div>
+      <div class="draw-hint" id="draw-hint">
+        <span id="draw-hint-text">Klik peta untuk tambah titik</span>
+        <button id="draw-cancel" aria-label="Batal">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div class="coord-read mono" id="coord-read">—</div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ DIALOG ============ -->
+<div class="scrim" id="scrim">
+  <div class="dialog" role="dialog" aria-modal="true" id="dialog">
+    <div class="dlg-head">
+      <h2 class="dlg-title" id="dlg-title"></h2>
+      <p class="dlg-desc" id="dlg-desc"></p>
+    </div>
+    <div class="dlg-body" id="dlg-body"></div>
+    <div class="dlg-foot" id="dlg-foot"></div>
+  </div>
+</div>
+
+<!-- ============ TOAST ============ -->
+<div class="toast" id="toast" role="status">
+  <span id="toast-msg"></span>
+  <button id="toast-act" style="display:none"></button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+/* ================= ICONS (Lucide, satu library, currentColor) ================= */
+const P = {
+  chev: '<circle cx="12" cy="12" r="10"/><path d="m6 9 6 6 6-6"/>',
+  pinPlus: '<path d="M20 10c0 4.99-5.54 10.19-7.4 11.88a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/><path d="M12 8.5v3M10.5 10h3"/>',
+  paste: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  pen: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  move: '<path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/><path d="M2 12h20"/><path d="M12 2v20"/>',
+  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+};
+function icon(n, s=16, w=2){
+  return `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+}
+
+/* ================= DATA ================= */
+const SLOTS = [
+  { key:'tapak',     name:'Tapak Proyek', type:'polygon', color:'#7C3AED', folder:'tapak-proyek' },
+  { key:'tkelola',   name:'Titik Kelola',  type:'point',   color:'#EA580C', folder:'titik-kelola' },
+  { key:'tpantau',   name:'Titik Pantau',  type:'point',   color:'#2563EB', folder:'titik-pantau' },
+  { key:'akelola',   name:'Area Kelola',   type:'polygon', color:'#D97706', folder:'area-kelola' },
+  { key:'apantau',   name:'Area Pantau',   type:'polygon', color:'#0D9488', folder:'area-pantau' },
+];
+const profile = {
+  PEMRAKARSA:'PT Nusa Hijau Lestari', KEGIATAN:'Pembangunan Kawasan Industri Terpadu',
+  TAHUN:'2026', PROVINSI:'Kalimantan Timur', TIPE_DOKUM:'Amdal',
+};
+const PROFILE_LABEL = { PEMRAKARSA:'Pemrakarsa', KEGIATAN:'Kegiatan', TAHUN:'Tahun', PROVINSI:'Provinsi', TIPE_DOKUM:'Tipe Dokumen' };
+const feats = {
+  tapak:   [ {id:'f1', kode:'', ket:'Tapak proyek kawasan industri', latlngs:[[-1.270,116.825],[-1.270,116.840],[-1.260,116.840],[-1.260,116.825]]} ],
+  tkelola: [ {id:'f2', kode:'U1', ket:'Cerobong boiler — pengelolaan kualitas udara', latlng:[-1.268,116.832]},
+             {id:'f3', kode:'U2', ket:'IPAL — pengelolaan kualitas air', latlng:[-1.263,116.836]} ],
+  tpantau: [ {id:'f4', kode:'AP1', ket:'Titik pantau kualitas air — Sungai', latlng:[-1.272,116.828]},
+             {id:'f5', kode:'AP2', ket:'Titik pantau udara — Area Timur', latlng:[-1.261,116.838]} ],
+  akelola: [ {id:'f6', kode:'AK1', ket:'Area pengelolaan limbah B3', latlngs:[[-1.266,116.830],[-1.266,116.835],[-1.262,116.835],[-1.262,116.830]]} ],
+  apantau: [],
+};
+let uid = 100;
+const state = { openAcc:'tpantau', mode:{}, editing:null, adding:null, drawing:null };
+
+/* ================= MAP ================= */
+const map = L.map('map', { zoomControl:false, doubleClickZoom:false, attributionControl:false })
+  .setView([-1.266, 116.832], 14);
+L.control.zoom({ position:'bottomright' }).addTo(map);
+L.control.scale({ imperial:false, position:'bottomright' }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:19 }).addTo(map);
+map.attributionControl = L.control.attribution({ prefix:false }).addTo(map);
+map.attributionControl.addAttribution('Citra: Esri World Imagery');
+
+const layerGroup = L.layerGroup().addTo(map);
+const markerById = {}, polyById = {};
+function dotIcon(color, sel){
+  return L.divIcon({ className:'', html:`<span class="mk${sel?' sel':''}" style="--c:${color}"></span>`,
+    iconSize:[14,14], iconAnchor:[7,7] });
+}
+function drawFeatures(){
+  layerGroup.clearLayers();
+  for(const k in markerById) delete markerById[k];
+  for(const k in polyById) delete polyById[k];
+  SLOTS.forEach(s=>{
+    feats[s.key].forEach(f=>{
+      if(s.type==='point'){
+        const sel = state.editing && state.editing.id===f.id;
+        const m = L.marker(f.latlng, { icon:dotIcon(s.color, sel), draggable:!!sel, title:f.kode||'' });
+        if(sel) m.on('dragend', ()=>{ f.latlng=[m.getLatLng().lat, m.getLatLng().lng]; });
+        m.on('click', ev=>{ L.DomEvent.stopPropagation(ev); openAcc(s.key); startEdit(s.key, f.id); });
+        m.addTo(layerGroup); markerById[f.id]=m;
+      }else{
+        const sel = state.editing && state.editing.id===f.id;
+        const p = L.polygon(f.latlngs, { color:s.color, weight:sel?3:2, fillColor:s.color, fillOpacity:sel?0.2:0.1 });
+        p.on('click', ()=>{ openAcc(s.key); startEdit(s.key, f.id); });
+        p.addTo(layerGroup); polyById[f.id]=p;
+      }
+    });
+  });
+}
+const coordRead = document.getElementById('coord-read');
+map.on('mousemove', e=>{ coordRead.textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`; });
+/* ================= RENDER: SIDEBAR ================= */
+const $ = s=>document.querySelector(s);
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function renderSidebar(){
+  const host = $('#side-scroll');
+  let h = '';
+  // Profil
+  const open = state.openAcc==='profil';
+  h += `<div class="acc${open?' open':''}">
+    <button class="acc-head" data-acc="profil" aria-expanded="${open}">
+      <span class="acc-dot" style="--c:#52525B"></span>
+      <span class="acc-name">Profil Proyek</span>
+      <span class="acc-chev">${icon('chev',13,2.5)}</span>
+    </button>
+    <div class="acc-body"><div class="acc-inner"><div class="acc-content">
+      ${Object.keys(PROFILE_LABEL).map(k=>
+        `<div class="kv"><span class="kv-k">${PROFILE_LABEL[k]}</span><span class="kv-v" title="${esc(profile[k])}">${esc(profile[k])}</span></div>`
+      ).join('')}
+      <div style="margin-top:12px"><button class="btn btn-outline btn-sm" data-act="edit-profile">Ubah profil</button></div>
+    </div></div></div>
+  </div>`;
+  // Slot accordions
+  SLOTS.forEach(s=>{
+    const isOpen = state.openAcc===s.key;
+    const n = feats[s.key].length;
+    h += `<div class="acc${isOpen?' open':''}">
+      <button class="acc-head" data-acc="${s.key}" aria-expanded="${isOpen}">
+        <span class="acc-dot" style="--c:${s.color}"></span>
+        <span class="acc-name">${s.name}</span>
+        <span class="acc-count">${n} fitur</span>
+        <span class="acc-chev">${icon('chev',13,2.5)}</span>
+      </button>
+      <div class="acc-body"><div class="acc-inner"><div class="acc-content">
+        ${slotBody(s)}
+      </div></div></div>
+    </div>`;
+  });
+  host.innerHTML = h;
+  renderBulkSummary();
+}
+
+function inputModes(s){
+  const m = state.mode[s.key];
+  const items = s.type==='point'
+    ? [['add','pinPlus','Tambah'],['paste','paste','Paste'],['import','upload','Impor']]
+    : [['draw','pen','Gambar'],['paste','paste','Paste'],['import','upload','Impor']];
+  return `<div class="tgroup" role="group" aria-label="Mode input ${s.name}">
+      ${items.map(([k,ic,lb])=>`
+        <button class="tbtn" data-mode="${s.key}:${k}" aria-pressed="${m===k}">
+          ${icon(ic,20)}<span>${lb}</span>
+        </button>`).join('')}
+    </div>`;
+}
+
+function slotBody(s){
+  const ed = state.editing;
+  let h = inputModes(s);
+  h += `<div id="rows-${s.key}">`;
+  if(!feats[s.key].length){
+    h += `<div class="empty">Belum ada fitur.<br>Tambah lewat tombol di atas.</div>`;
+  }
+  feats[s.key].forEach(f=>{
+    const isEd = ed && ed.slot===s.key && ed.id===f.id;
+    h += `<div class="frow" data-fid="${f.id}">
+      <div class="frow-top">
+        <div class="frow-id">
+          ${f.kode?`<div class="frow-kode mono">${esc(f.kode)}</div>`:''}
+          <div class="frow-ket">${esc(f.ket)||'<span style="color:var(--text-3)">— tanpa keterangan —</span>'}</div>
+        </div>
+        <div class="frow-actions">
+          <button class="btn btn-outline btn-sm" data-act="edit" data-slot="${s.key}" data-fid="${f.id}">${icon('pencil',13)} Edit</button>
+          <button class="btn btn-danger-ghost btn-sm" data-act="del" data-slot="${s.key}" data-fid="${f.id}" aria-label="Hapus">${icon('trash',13)}</button>
+        </div>
+      </div>
+      ${isEd?editBox(s,f):''}
+    </div>`;
+  });
+  h += `</div>
+    <div class="exp-row">
+      <span class="exp-label">Ekspor lapisan ini</span>
+      <button class="btn btn-outline btn-sm" data-act="exp-zip" data-slot="${s.key}">ZIP</button>
+      <button class="btn btn-outline btn-sm" data-act="exp-pdf" data-slot="${s.key}">PDF</button>
+    </div>`;
+  return h;
+}
+
+function editBox(s,f){
+  const needKode = s.key!=='tapak';
+  return `<div class="editbox">
+    ${needKode?`<div class="field"><label for="ek-${f.id}">KODE</label>
+      <input class="input mono" id="ek-${f.id}" value="${esc(f.kode)}" maxlength="50" placeholder="cth: AP1"></div>`:''}
+    <div class="field"><label for="et-${f.id}">Keterangan</label>
+      <input class="input" id="et-${f.id}" value="${esc(f.ket)}" maxlength="254" placeholder="Nama lokasi + dampak yang dikelola/dipantau"></div>
+    ${s.type==='point'?`<div class="hint">${icon('move',14)}<span><b>Seret titik di peta</b> untuk menggeser lokasi.</span></div>`:''}
+    <div class="edit-actions">
+      <button class="btn btn-ghost btn-sm" data-act="edit-cancel">Batal</button>
+      <button class="btn btn-primary btn-sm" data-act="edit-save" data-slot="${s.key}" data-fid="${f.id}">${icon('check',13)} Simpan</button>
+    </div>
+  </div>`;
+}
+
+function renderBulkSummary(){
+  let nF = 0; SLOTS.forEach(s=> nF += feats[s.key].length);
+  $('#bulk-sub').textContent = `${SLOTS.length} konten · ${nF} fitur — tiap konten ZIP + PDF`;
+}
+
+function openAcc(key){ state.openAcc = key; renderSidebar(); }
+
+/* ================= DIALOG & TOAST ================= */
+const scrim = $('#scrim');
+function openDialog(title, desc, body, foot){
+  $('#dlg-title').textContent = title; $('#dlg-desc').textContent = desc;
+  $('#dlg-body').innerHTML = body; $('#dlg-foot').innerHTML = foot;
+  scrim.classList.add('show');
+}
+function closeDialog(){ scrim.classList.remove('show'); }
+scrim.addEventListener('click', e=>{ if(e.target===scrim) closeDialog(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeDialog(); cancelMode(); } });
+
+let toastTimer;
+function toast(msg, actLabel, actFn){
+  $('#toast-msg').textContent = msg;
+  const b = $('#toast-act');
+  if(actLabel){ b.style.display=''; b.textContent = actLabel; b.onclick = ()=>{ actFn&&actFn(); hideToast(); }; }
+  else b.style.display='none';
+  $('#toast').classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, 4200);
+}
+function hideToast(){ $('#toast').classList.remove('show'); }
+$('#toast-act').addEventListener('click', ()=>{});
+/* ================= INTERAKSI ================= */
+const drawHint = $('#draw-hint'), drawHintText = $('#draw-hint-text');
+function setMode(slotKey, mode){
+  cancelMode(true);
+  state.mode[slotKey] = (state.mode[slotKey]===mode) ? null : mode;
+  renderSidebar();
+  const m = state.mode[slotKey];
+  if(m==='add'){ drawHintText.textContent = 'Klik peta untuk tambah titik — klik Batal untuk selesai'; drawHint.classList.add('show'); }
+  else if(m==='draw'){ drawHintText.textContent = 'Klik peta untuk tiap vertex — klik dua kali untuk selesai'; drawHint.classList.add('show'); startDraw(slotKey); }
+  else if(m==='paste'){ openPasteDialog(slotKey); }
+  else if(m==='import'){ $('#filepick').click(); state.mode[slotKey]=null; renderSidebar(); }
+}
+function cancelMode(silent){
+  drawHint.classList.remove('show');
+  if(state.drawing){ map.off('click', state.drawing.onClick); map.off('dblclick', state.drawing.onDbl);
+    if(state.drawing.line) map.removeLayer(state.drawing.line); state.drawing=null; }
+  if(!silent) for(const k in state.mode) state.mode[k]=null;
+}
+
+/* --- tambah titik --- */
+map.on('click', e=>{
+  const slotKey = Object.keys(state.mode).find(k=>state.mode[k]==='add');
+  if(!slotKey) return;
+  const s = SLOTS.find(x=>x.key===slotKey);
+  const f = { id:'f'+(++uid), kode:'', ket:'', latlng:[e.latlng.lat, e.latlng.lng] };
+  feats[slotKey].push(f); drawFeatures(); openAcc(slotKey); startEdit(slotKey, f.id);
+  toast('Titik ditambah — lengkapi KODE & keterangan');
+});
+
+/* --- gambar polygon --- */
+function startDraw(slotKey){
+  const pts = []; let line = null;
+  const onClick = e=>{
+    pts.push([e.latlng.lat, e.latlng.lng]);
+    if(line) map.removeLayer(line);
+    line = L.polyline(pts, { color:'#18181B', weight:2, dashArray:'5 5' }).addTo(map);
+  };
+  const onDbl = ()=>{
+    map.off('click', onClick); map.off('dblclick', onDbl);
+    if(line) map.removeLayer(line);
+    // buang vertex duplikat dari dua klik pembentuk double-click
+    while(pts.length>=2){
+      const a=pts[pts.length-1], b=pts[pts.length-2];
+      if(a[0]===b[0] && a[1]===b[1]) pts.pop(); else break;
+    }
+    if(pts.length>=3){
+      const s = SLOTS.find(x=>x.key===slotKey);
+      const f = { id:'f'+(++uid), kode:'', ket:'', latlngs:pts };
+      feats[slotKey].push(f); drawFeatures(); openAcc(slotKey); startEdit(slotKey, f.id);
+      toast('Polygon selesai — lengkapi atribut');
+    } else toast('Polygon butuh minimal 3 vertex');
+    state.drawing = null; state.mode[slotKey]=null; drawHint.classList.remove('show'); renderSidebar();
+  };
+  map.on('click', onClick); map.on('dblclick', onDbl);
+  state.drawing = { onClick, onDbl, line:null };
+  Object.defineProperty(state.drawing, 'line', { get:()=>line, set:v=>{line=v;}, configurable:true });
+}
+$('#draw-cancel').addEventListener('click', ()=>{ cancelMode(); renderSidebar(); });
+
+/* --- paste koordinat --- */
+function openPasteDialog(slotKey){
+  const s = SLOTS.find(x=>x.key===slotKey);
+  const ph = s.type==='point' ? '-1.272, 116.828\n-1.261, 116.838' : '-1.270,116.825; -1.270,116.840; -1.260,116.840';
+  openDialog('Paste Koordinat', `${s.name} — satu baris per ${s.type==='point'?'titik':'polygon (vertex dipisah titik koma)'}.`,
+    `<div class="field"><label for="paste-ta">Koordinat (desimal, lat, lon)</label>
+     <textarea class="input mono" id="paste-ta" rows="5" placeholder="${ph}"></textarea></div>`,
+    `<button class="btn btn-ghost" data-dlg="cancel">Batal</button>
+     <button class="btn btn-primary" data-dlg="paste-ok" data-slot="${slotKey}">${icon('check',14)} Tambah</button>`);
+  state.mode[slotKey]=null; renderSidebar();
+}
+function doPaste(slotKey){
+  const s = SLOTS.find(x=>x.key===slotKey);
+  const lines = $('#paste-ta').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  let n = 0;
+  lines.forEach(ln=>{
+    const nums = ln.split(/[;,\s]+/).map(Number).filter(v=>!isNaN(v));
+    if(s.type==='point' && nums.length>=2){ feats[slotKey].push({ id:'f'+(++uid), kode:'', ket:'', latlng:[nums[0],nums[1]] }); n++; }
+    else if(s.type==='polygon' && nums.length>=6){
+      const ll=[]; for(let i=0;i+1<nums.length;i+=2) ll.push([nums[i],nums[i+1]]);
+      if(ll.length>=3){ feats[slotKey].push({ id:'f'+(++uid), kode:'', ket:'', latlngs:ll }); n++; }
+    }
+  });
+  closeDialog(); drawFeatures(); openAcc(slotKey);
+  toast(n? `${n} fitur ditambah dari paste` : 'Tidak ada koordinat valid');
+}
+
+/* --- profil --- */
+function openProfileDialog(){
+  openDialog('Ubah Profil Proyek', 'Berlaku untuk semua lapisan. Maks 50 karakter per kolom.',
+    Object.keys(PROFILE_LABEL).map(k=>`
+      <div class="field"><label for="pf-${k}">${PROFILE_LABEL[k]}</label>
+        <input class="input" id="pf-${k}" value="${esc(profile[k])}" maxlength="60" data-k="${k}">
+        <div class="char-count" id="cc-${k}">${profile[k].length}/50</div>
+      </div>`).join(''),
+    `<button class="btn btn-ghost" data-dlg="cancel">Batal</button>
+     <button class="btn btn-primary" data-dlg="profile-ok">${icon('check',14)} Simpan</button>`);
+  Object.keys(PROFILE_LABEL).forEach(k=>{
+    $('#pf-'+k).addEventListener('input', e=>{
+      const cc = $('#cc-'+k); cc.textContent = `${e.target.value.length}/50`;
+      cc.classList.toggle('over', e.target.value.length>50);
+    });
+  });
+}
+
+/* --- edit / hapus --- */
+function startEdit(slotKey, fid){ state.editing = { slot:slotKey, id:fid }; drawFeatures(); openAcc(slotKey);
+  setTimeout(()=>{ const m = markerById[fid]; if(m) map.panTo(m.getLatLng()); }, 60); }
+function saveEdit(slotKey, fid){
+  const f = feats[slotKey].find(x=>x.id===fid); if(!f) return;
+  const ke = $('#ek-'+fid), te = $('#et-'+fid);
+  if(ke) f.kode = ke.value.trim().toUpperCase();
+  if(te) f.ket = te.value.trim();
+  state.editing = null; drawFeatures(); renderSidebar();
+  toast('Perubahan disimpan');
+}
+let lastDeleted = null;
+function delFeat(slotKey, fid){
+  const i = feats[slotKey].findIndex(x=>x.id===fid); if(i<0) return;
+  lastDeleted = { slotKey, f:feats[slotKey][i], i };
+  feats[slotKey].splice(i,1);
+  if(state.editing && state.editing.id===fid) state.editing=null;
+  drawFeatures(); renderSidebar();
+  toast('Fitur dihapus', 'Urungkan', ()=>{
+    feats[lastDeleted.slotKey].splice(Math.min(lastDeleted.i, feats[lastDeleted.slotKey].length), 0, lastDeleted.f);
+    drawFeatures(); renderSidebar();
+  });
+}
+
+/* --- export (mockup: dinonaktifkan, jujur) --- */
+function mockExport(){ toast('Mode mockup — unduhan dinonaktifkan'); }
+$('#btn-bulk').addEventListener('click', mockExport);
+
+/* --- event delegation sidebar --- */
+$('#side-scroll').addEventListener('click', e=>{
+  const acc = e.target.closest('[data-acc]');
+  if(acc){ const k = acc.dataset.acc; state.openAcc = (state.openAcc===k)? null : k; renderSidebar(); return; }
+  const mb = e.target.closest('[data-mode]');
+  if(mb){ const [sk, m] = mb.dataset.mode.split(':'); setMode(sk, m); return; }
+  const b = e.target.closest('[data-act]');
+  if(!b) return;
+  const a = b.dataset.act;
+  if(a==='edit-profile') openProfileDialog();
+  else if(a==='edit') startEdit(b.dataset.slot, b.dataset.fid);
+  else if(a==='edit-cancel'){ state.editing=null; drawFeatures(); renderSidebar(); }
+  else if(a==='edit-save') saveEdit(b.dataset.slot, b.dataset.fid);
+  else if(a==='del') delFeat(b.dataset.slot, b.dataset.fid);
+  else if(a==='exp-zip'||a==='exp-pdf') mockExport();
+});
+$('#dlg-foot').addEventListener('click', e=>{
+  const b = e.target.closest('[data-dlg]'); if(!b) return;
+  const d = b.dataset.dlg;
+  if(d==='cancel') closeDialog();
+  else if(d==='paste-ok') doPaste(b.dataset.slot);
+  else if(d==='profile-ok'){
+    Object.keys(PROFILE_LABEL).forEach(k=>{ profile[k] = $('#pf-'+k).value.trim(); });
+    closeDialog(); renderSidebar(); toast('Profil diperbarui');
+  }
+});
+
+/* hidden file input */
+const fp = document.createElement('input');
+fp.type='file'; fp.id='filepick'; fp.style.display='none'; fp.accept='.csv,.txt,.gpx,.kml,.zip,.shp';
+fp.addEventListener('change', ()=>{ toast('Mode mockup — impor file dinonaktifkan'); fp.value=''; });
+document.body.appendChild(fp);
+
+/* --- mobile sheet --- */
+const side = $('#side');
+$('#sheet-toggle').addEventListener('click', ()=> side.classList.toggle('open'));
+(function(){
+  const grab = $('#grab'); let y0=0, open=true;
+  grab.addEventListener('pointerdown', e=>{ y0=e.clientY; grab.setPointerCapture(e.pointerId); });
+  grab.addEventListener('pointermove', e=>{
+    if(!grab.hasPointerCapture(e.pointerId)) return;
+    const dy = e.clientY - y0;
+    if(dy>60 && open){ side.classList.remove('open'); open=false; }
+    else if(dy<-60 && !open){ side.classList.add('open'); open=true; }
+  });
+})();
+
+/* ================= INIT ================= */
+function setAppHeight(){
+  document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', ()=>setTimeout(setAppHeight, 100));
+window.addEventListener('error', e=>{
+  const t = $('#toast-msg'); if(t){ $('#toast').classList.add('show'); t.textContent = 'Error: '+(e.message||'unknown'); }
+});
+renderSidebar();
+renderBulkSummary();
+drawFeatures();
+</script>
+</body>
+</html>
