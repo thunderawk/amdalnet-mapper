@@ -8,30 +8,38 @@ menggantikan alur manual ArcMap di JUKNIS Data Spasial AMDALNET.
 
 Buka **`AMDALNET-Mapper.html`** dengan double-click (Chrome/Safari/Edge).
 Satu file, tidak perlu install apa pun. Butuh internet untuk basemap satelit
-& pencarian wilayah; menggambar, ekspor SHP/PDF, dan pengelolaan proyek tetap
+& Info Wilayah; menggambar, ekspor SHP/PDF, dan pengelolaan proyek tetap
 jalan offline.
 
-> Basemap memakai **Esri World Imagery** (satelit) sesuai JUKNIS.
+> Basemap: **Esri Satelit** (bawaan, sesuai JUKNIS) atau **Google Satelit** —
+> pilih dari kontrol layer kanan atas peta.
 
 ## Alur kerja
 
-Stepper 4 langkah: **Profil → Gambar → Validasi → Ekspor**.
+Sidebar berisi panel **Profil** + 5 konten (Tapak Proyek, Titik Pantau,
+Titik Kelola, Area Pantau, Area Kelola); setiap konten bisa dibuka-tutup
+(accordion). Layout responsif — di HP sidebar jadi drawer.
 
 1. **Profil** — isi Pemrakarsa, Kegiatan, Tahun, Provinsi, Kabupaten/
-   Kecamatan/Desa, Tipe Dokumen. Bisa terisi otomatis dari pencarian wilayah.
-2. **Gambar** — pilih layer, lalu Tambah Titik (klik peta), Gambar Area
-   (klik sudut, double-click/Enter selesai, Backspace = undo vertex, luas
-   live dalam Ha), Paste Koordinat (bulk dari Excel, ada tab konverter
-   DD/DMS/DMM/UTM), atau Impor SHP/GeoJSON/CSV (file lama, ZIP quartet,
-   atau CSV kolom lon,lat / WKT — CRS terbaca dari .prj).
-   - **Cari lokasi**: cari wilayah resmi (data BIG — desa/kecamatan/kab-kota)
-     untuk menggambar batas otomatis, atau cari tempat umum (Nominatim).
-   - **Info Wilayah**: klik peta → kartu detail administrasi (desa,
-     kecamatan, kab/kota, provinsi, kode wilayah) → terapkan ke profil.
-3. **Validasi** — cek paket siap upload; masalah bisa diklik untuk zoom ke
-   fitur yang bermasalah.
-4. **Ekspor** — dialog terpadu: ZIP SHP per layer (+ slot upload AMDALNET),
-   PDF peta per layer, ekspor semua, atau ekspor ke folder proyek.
+   Kecamatan/Desa, Tipe Dokumen. Bisa terisi otomatis dari mode
+   **Info Wilayah**: klik peta → kartu detail administrasi (desa, kecamatan,
+   kab/kota, provinsi, kode wilayah) → terapkan ke profil.
+2. **Isi konten** — buka salah satu konten, pilih mode input lewat tombol
+   ikon:
+   - **Tambah/Gambar**: titik = klik peta; area = klik tiap sudut,
+     double-click/Enter selesai, Backspace = undo vertex, luas live dalam Ha.
+   - **Paste**: bulk koordinat dari Excel, ada tab konverter DD/DMS/DMM/UTM.
+   - **Impor**: SHP/GeoJSON/KML/CSV (file lama, ZIP quartet, atau CSV kolom
+     lon,lat / WKT — CRS terbaca dari .prj).
+   Label fitur hanya muncul saat hover (tidak menumpuk di peta). Edit inline
+   KODE/Keterangan di tabel data; titik bisa diseret langsung di peta.
+3. **Validasi** — cek paket siap upload sebelum ekspor; masalah bisa diklik
+   untuk zoom ke fitur yang bermasalah. Tombol ekspor per konten terkunci
+   selama masih ada error validasi.
+4. **Ekspor** — tiap konten punya pill ekspor **ZIP** (SHP siap upload ke
+   amdalnet) dan **PDF** (arsip/preview); footer **Ekspor Semua Konten**
+   mengunduh `amdalnet_mapper.zip` (5 folder konten, tiap folder berisi
+   ZIP + PDF).
 
 Lengkapi **KODE** & **Keterangan** di tabel data (ada bulk KODE berurutan,
 filter/search). Mode gelap/terang: tombol matahari/bulan di header.
