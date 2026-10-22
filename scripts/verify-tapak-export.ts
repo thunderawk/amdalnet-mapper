@@ -12,7 +12,12 @@
  * Jalankan: npx tsx scripts/verify-tapak-export.ts
  */
 import JSZip from 'jszip'
-import { buildLayerZip } from '../src/lib/export'
+// buildLayerZip diimpor dari layer-zip, bukan export.ts: export.ts mengimpor
+// leaflet sebagai value (browser-only) sehingga script ini gagal di Node
+// ("window is not defined"). export.ts sendiri hanya me-re-export fungsi
+// yang sama dari layer-zip, jadi jalur verifikasinya identik.
+import { buildLayerZip } from '../src/lib/layer-zip'
+import { PRJ_TITIK } from '../src/lib/prj'
 import { LAYER_BY_KEY } from '../src/lib/layers'
 import { emptyProject, makeFeature } from '../src/lib/project'
 import type { Geom } from '../src/lib/geo'
@@ -119,9 +124,14 @@ if (!(xmin > 100 && xmin < 120)) fail('bbox bukan derajat')
 ok('shape type = 5 (plain Polygon), koordinat derajat')
 
 // ── cek 6: .prj byte-identik template ──
+// Referensi .prj tapak asli amdalnet sekarang hidup di repo sebagai konstanta
+// PRJ_TITIK (src/lib/prj.ts, 145 byte, "jangan edit") — bukan lagi file
+// /tmp/tapak_ref yang tidak ada di semua mesin. Cek ini memastikan writer
+// memasang .prj yang benar untuk tapak (EPSG:4326), bukan PRJ_AREA.
 const prj = await zip.files['tapak-proyek.prj'].async('uint8array')
-const refPrj = await (await import('node:fs/promises')).readFile('/tmp/tapak_ref/tapak-proyek.prj')
-if (Buffer.from(prj).toString() !== refPrj.toString()) fail('.prj tidak identik template')
+const prjText = Buffer.from(prj).toString()
+if (prjText.length !== 145) fail(`panjang .prj = ${prjText.length} byte, harus 145`)
+if (prjText !== PRJ_TITIK) fail('.prj tidak identik template amdalnet')
 ok('.prj byte-identik template (EPSG:4326, 145B)')
 
 console.log('\nSEMUA CEK LOLOS — export tapak byte-identik template amdalnet ✓')
