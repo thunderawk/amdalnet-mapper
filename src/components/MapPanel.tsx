@@ -52,9 +52,11 @@ interface Props {
 }
 
 /**
- * Satu-satunya basemap: citra satelit Esri World Imagery — sesuai contoh
- * JUKNIS & pratinjau peta di amdalnet (satelit + titik/polygon merah).
- * Opsi basemap: Esri World Imagery (bawaan) + Google Satellite (atas permintaan user 2026-10-18).
+ * Dua basemap Esri (gratis, tanpa API key, bebas ToS):
+ * - Satelit (World Imagery) — bawaan, sesuai contoh JUKNIS
+ * - Street (World_Street_Map) — referensi jalanan
+ * Dipilih via layer-control Leaflet di kanan atas; handler onAdd/onRemove
+ * memastikan selalu tepat satu basemap aktif (blank-map dihindari).
  */
 const BASEMAPS: Record<string, { url: string; attribution: string; maxZoom: number }> = {
   'Esri Satelit': {
@@ -62,10 +64,10 @@ const BASEMAPS: Record<string, { url: string; attribution: string; maxZoom: numb
     attribution: 'Esri, Maxar, Earthstar Geographics',
     maxZoom: 19,
   },
-  'Google Satelit': {
-    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-    attribution: 'Google',
-    maxZoom: 20,
+  'Esri Street': {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Esri, Source: Esri, DeLorme, NIPORT',
+    maxZoom: 19,
   },
 }
 const DEFAULT_BASEMAP = 'Esri Satelit'
@@ -99,6 +101,8 @@ export default function MapPanel(props: Props) {
   })
   /** Undo vertex terakhir saat menggambar polygon (diisi oleh efek draw). */
   const undoVertexRef = useRef<(() => void) | null>(null)
+  /** Zoom eksplisit ke satu fitur (perubahan kamera imperatif via tombol/double-klik). */
+  const zoomToFeatureRef = useRef<(id: string) => void>(() => {})
   const initedRef = useRef(false)
   /** Statistik gambar berjalan: jumlah vertex + luas sementara (m²). */
   const [drawStats, setDrawStats] = useState<{ verts: number; areaM2: number }>({
@@ -114,8 +118,8 @@ export default function MapPanel(props: Props) {
 
     const map = L.map(el, { center: [-2.5, 118], zoom: 5, zoomControl: false })
     mapRef.current = map
-    // kontrol zoom di kanan atas (kiri atas dipakai panel status layer)
-    L.control.zoom({ position: 'topright' }).addTo(map)
+    // tidak ada tombol +/− (dianggap tidak perlu, 2026-10-18): zoom via
+    // scroll/pinch, pindah kamera via layer-switch & tombol locate di sidebar.
 
     const baseLayers: Record<string, L.TileLayer> = {}
     for (const [name, b] of Object.entries(BASEMAPS)) {
@@ -126,13 +130,31 @@ export default function MapPanel(props: Props) {
       })
     }
     baseLayers[DEFAULT_BASEMAP].addTo(map)
+    // hanya satu basemap aktif: switch lewat layer-control meng-ganti, bukan
+    // menumpuk (hindari blank-map saat user mem-deselect semua basemap).
+    let activeBasemap: L.TileLayer = baseLayers[DEFAULT_BASEMAP]
+    const activeBasemapSat = baseLayers[DEFAULT_BASEMAP]
+    map.on('overlayadd', (e: L.LayerEvent) => {
+      if (e.layer instanceof L.TileLayer) activeBasemap = e.layer
+    })
+    map.on('overlayremove', (e: L.LayerEvent) => {
+      if (!(e.layer instanceof L.TileLayer)) return
+      // tunda set: re-add sinkron di dalam handler remove menyebabkan
+      // leaflet tidak selesai remove layer yang sedang dipilih.
+      if (e.layer === activeBasemap) setTimeout(() => activeBasemap.addTo(map), 0)
+    })
 
     for (const def of LAYERS) {
       groupsRef.current.set(def.key, L.layerGroup().addTo(map))
     }
 
-    // class penanda basemap satelit — dark mode memakai filter khusus
+    // class penanda basemap aktif — dark mode filter berbeda per basemap
+    // (satelit hanya diredam; street di-invert). Dipindah via baselayerchange.
     map.getContainer().classList.add('basemap-satellite')
+    map.on('baselayerchange', (e: L.LayerEvent) => {
+      const c = map.getContainer()
+      c.classList.toggle('basemap-satellite', e.layer === activeBasemapSat)
+    })
 
     // kontrol layer: pilihan basemap + overlay 5 layer konten
     const overlayObj: Record<string, L.LayerGroup> = {}
@@ -149,50 +171,73 @@ export default function MapPanel(props: Props) {
   }, [])
 
   // ── render ulang semua fitur ──
+  // Mode gambar/edit: SEMUA layer non-interactive (klik tembus ke peta) —
+  // termasuk layer aktif — sehingga vertex bisa ditaruh di mana saja,
+  // termasuk di dalam/atas batas konten lain. Di mode biasa: hanya layer
+  // aktif yang bisa dipilih/di-highlight; layer lain = referensi visual.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    const drawing = drawMode !== 'none'
     for (const def of LAYERS) {
       const g = groupsRef.current.get(def.key)!
       g.clearLayers()
       const feats = featuresOf(project, def.key)
+      const active = def.key === activeLayer
+      const clickable = active && !drawing
       for (const f of feats) {
-        const isSel = f.id === selectedId
+        const isSel = active && !drawing && f.id === selectedId
         const isEditing = f.id === editingId && def.geometry === 'point'
         const layer: L.Layer = isEditing
           ? editingPointMarker(def, f, onMoveFeature)
           : def.geometry === 'point'
-            ? pointLayer(def, f, isSel)
-            : areaLayer(def, f, isSel)
+            ? pointLayer(def, f, isSel, !active || drawing, clickable)
+            : areaLayer(def, f, isSel, !active || drawing, clickable)
         const tip = isEditing
           ? 'Seret untuk memindahkan titik ini'
           : `${f.kode || '?'}${f.keterangan ? ' — ' + f.keterangan : ''}`
         layer.bindTooltip(tip, { permanent: false, direction: 'top', className: 'amdal-tip' })
-        if (!isEditing) layer.on('click', () => onSelect(f.id))
+        if (isEditing) {
+          // marker edit tetap draggable
+        } else if (clickable) {
+          // layer aktif & bukan mode gambar: klik = highlight (kamera diam),
+          // double-klik = zoom
+          layer.on('click', () => onSelect(f.id))
+          layer.on('dblclick', () => zoomToFeatureRef.current(f.id))
+        }
+        // lainnya (non-aktif, atau aktif-tapi-sedang-gambar): klik tembus —
+        // reference visual / tidak menghalangi vertex.
         g.addLayer(layer)
       }
     }
-  }, [project, selectedId, editingId, onSelect, onMoveFeature, mapRef])
+  }, [project, selectedId, editingId, activeLayer, drawMode, onSelect, onMoveFeature, mapRef])
 
-  // ── zoom ke layer aktif saat ganti tab ──
+  // ── zoom ke layer aktif saat ganti tab + bersihkan seleksi layer lama
+  // (fitur non-aktif tidak bisa dipilih — selection lama jadi orphan). ──
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    const sel = selectedId ? project.features.find((x) => x.id === selectedId) : null
+    if (sel && sel.layer !== activeLayer) onSelect(null)
     const feats = featuresOf(project, activeLayer)
     const b = boundsOf(feats)
     if (b) map.fitBounds(b, { padding: [40, 40], maxZoom: 17 })
-  }, [activeLayer, project, mapRef])
+  }, [activeLayer, project, selectedId, onSelect, mapRef])
 
-  // ── zoom ke fitur terseleksi ──
+  // ── zoom eksplisit ke satu fitur (perubahan kamera imperatif).
+  // Selection sendiri TIDAK memindahkan kamera — hanya highlight; kamera
+  // bergerak hanya via aksi eksplisit: pilih layer, double-klik marker,
+  // atau tombol locate-issue dari validasi.
   useEffect(() => {
-    if (!selectedId) return
-    const map = mapRef.current
-    if (!map) return
-    const f = project.features.find((x) => x.id === selectedId)
-    if (!f) return
-    const b = boundsOf([f])
-    if (b) map.fitBounds(b, { padding: [80, 80], maxZoom: 18 })
-  }, [selectedId, project, mapRef])
+    zoomToFeatureRef.current = (id: string) => {
+      const map = mapRef.current
+      if (!map) return
+      const f = project.features.find((x) => x.id === id)
+      if (!f) return
+      const b = boundsOf([f])
+      if (b) map.fitBounds(b, { padding: [80, 80], maxZoom: 18 })
+    }
+  }, [project, mapRef])
 
   // ── mode info administrasi: klik peta → reverse-geocode ──
   useEffect(() => {
@@ -271,17 +316,37 @@ export default function MapPanel(props: Props) {
     const onClick = (e: L.LeafletMouseEvent) => {
       const p: Pt = { lon: e.latlng.lng, lat: e.latlng.lat }
       const last = t.pts[t.pts.length - 1]
-      // dedup klik ganda (dblclick memicu 2 click di titik yang sama)
+      // dedup: klik ganda di titik yang persis sama (dblclick, klik di
+      // vertex terakhir). Klik di lokasi BERBEDA selalu ditambahkan —
+      // termasuk di dalam/atas batas konten lain.
       if (last) {
         const a = map.latLngToContainerPoint([last.lat, last.lon])
         const b = map.latLngToContainerPoint([p.lat, p.lon])
-        if (a.distanceTo(b) < 12) return
+        if (a.distanceTo(b) < 2) return
       }
       t.pts.push(p)
       redraw()
       syncStats()
     }
-    const onDbl = () => finish()
+    // Finishing polygon: hanya ENTER / tombol "Selesai menggambar".
+    // Dblclick di peta (di atas batas lain ATAU di kosong) = ZOOM ke layer
+    // aktif — polygon TIDAK selesai lewat dblclick, jadi kamu bebas klik
+    // bebas di mana saja tanpa takut gambar tiba-tiba selesai.
+    const onDbl = (e: L.LeafletMouseEvent) => {
+      // zoom ke layer aktif di sekitar titik dblclick (bukan finish)
+      const feats: Feature[] = featuresOf(project, activeLayer)
+      const probe: Feature = {
+        id: '_dbl',
+        layer: activeLayer,
+        kode: '',
+        keterangan: '',
+        dbId: '0',
+        geom: { type: 'Point', c: { lon: e.latlng.lng, lat: e.latlng.lat } },
+        createdAt: new Date().toISOString(),
+      }
+      const b = boundsOf(feats.length > 0 ? feats : [probe])
+      if (b) map.fitBounds(b, { padding: [40, 40], maxZoom: 16 })
+    }
     const finish = () => {
       if (t.pts.length >= 3) {
         const ring = [...t.pts]
@@ -375,11 +440,12 @@ export default function MapPanel(props: Props) {
           </div>
         )}
       </div>
-      {/* tombol keluar mode gambar */}
+      {/* tombol keluar mode gambar (W3: label per mode — titik = "berhenti
+          menambah", polygon = "selesai menggambar") */}
       {drawMode !== 'none' && (
         <div className="absolute bottom-4 left-1/2 z-[500] -translate-x-1/2">
           <Button size="sm" variant="secondary" onClick={onExitDraw}>
-            Selesai menggambar
+            {drawMode === 'point' ? 'Berhenti menambah titik' : 'Selesai menggambar'}
           </Button>
         </div>
       )}
@@ -443,26 +509,49 @@ function editingPointMarker(
   return m
 }
 
-function pointLayer(def: (typeof LAYERS)[number], f: Feature, isSel: boolean): L.CircleMarker {
+function pointLayer(
+  def: (typeof LAYERS)[number],
+  f: Feature,
+  isSel: boolean,
+  dimmed = false,
+  clickable = true,
+): L.CircleMarker {
   const c = f.geom.type === 'Point' ? f.geom.c : { lon: 0, lat: 0 }
-  return L.circleMarker([c.lat, c.lon], {
+  const m = L.circleMarker([c.lat, c.lon], {
     radius: isSel ? 9 : 6,
     color: isSel ? '#111' : def.color,
     weight: isSel ? 3 : 2,
     fillColor: def.fill,
-    fillOpacity: 1,
+    fillOpacity: dimmed ? 0.35 : 1,
+    opacity: dimmed ? 0.5 : 1,
+    interactive: clickable,
   })
+  // Leaflet membaca `layer.options.interactive` saat hit-test & event
+  // target. Set eksplisit setelah create (opsi create tdk dijamin
+  // propagasi ke .options).
+  m.options.interactive = clickable
+  return m
 }
 
-function areaLayer(def: (typeof LAYERS)[number], f: Feature, isSel: boolean): L.Polygon {
+function areaLayer(
+  def: (typeof LAYERS)[number],
+  f: Feature,
+  isSel: boolean,
+  dimmed = false,
+  clickable = true,
+): L.Polygon {
   const ring = f.geom.type === 'Polygon' ? f.geom.ring : []
   const latlngs = ring.map((p) => [p.lat, p.lon] as L.LatLngTuple)
-  return L.polygon(latlngs, {
+  const poly = L.polygon(latlngs, {
     color: isSel ? '#111' : def.color,
     weight: isSel ? 4 : 2,
     fillColor: def.color,
-    fillOpacity: def.key === 'tapak' ? 0.08 : 0.18,
+    fillOpacity: dimmed ? 0.04 : def.key === 'tapak' ? 0.08 : 0.18,
+    opacity: dimmed ? 0.35 : 1,
+    interactive: clickable,
   })
+  poly.options.interactive = clickable
+  return poly
 }
 
 export function boundsOf(feats: Feature[]): L.LatLngBounds | null {

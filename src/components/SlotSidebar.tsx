@@ -30,10 +30,11 @@ interface Props {
   onOpenImport: (layer: LayerKey) => void
   selectedId: string | null
   onSelect: (id: string | null) => void
+  onZoomToFeature: (id: string) => void
   editingId: string | null
   onStartEdit: (id: string) => void
   onCancelEdit: () => void
-  onSaveEdit: (id: string, kode: string, keterangan: string) => void
+  onSaveEdit: (id: string, kode: string, keterangan: string, dbId: string) => void
   onDelete: (id: string) => void
   onExportZip: (layer: LayerKey) => void
   onExportPdf: (layer: LayerKey) => void
@@ -46,6 +47,9 @@ interface Props {
   totalFeatures: number
   totalErrors: number
   onBulkExport: () => void
+  /** W2: error profil diproseskan di baris Profil, bukan tiap layer. */
+  profileErrorCount: number
+  profileIssues: Issue[]
 }
 
 export default function SlotSidebar(p: Props) {
@@ -60,6 +64,9 @@ export default function SlotSidebar(p: Props) {
           onChange={p.onChangeProfile}
           open={p.openAcc === 'profil'}
           onToggle={() => p.onToggleAcc('profil')}
+          errorCount={p.profileErrorCount}
+          issues={p.profileIssues}
+          onLocateIssue={p.onLocateIssue}
         />
         {LAYERS.map((def) => {
           const feats: Feature[] = featuresOf(project, def.key)
@@ -77,6 +84,7 @@ export default function SlotSidebar(p: Props) {
               onOpenImport={() => p.onOpenImport(def.key)}
               selectedId={p.selectedId}
               onSelect={p.onSelect}
+              onZoomToFeature={p.onZoomToFeature}
               editingId={p.editingId}
               onStartEdit={p.onStartEdit}
               onCancelEdit={p.onCancelEdit}

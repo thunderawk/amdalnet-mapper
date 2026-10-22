@@ -8,38 +8,30 @@ menggantikan alur manual ArcMap di JUKNIS Data Spasial AMDALNET.
 
 Buka **`AMDALNET-Mapper.html`** dengan double-click (Chrome/Safari/Edge).
 Satu file, tidak perlu install apa pun. Butuh internet untuk basemap satelit
-& Info Wilayah; menggambar, ekspor SHP/PDF, dan pengelolaan proyek tetap
+& detail wilayah; menggambar, ekspor SHP/PDF, dan pengelolaan proyek tetap
 jalan offline.
 
-> Basemap: **Esri Satelit** (bawaan, sesuai JUKNIS) atau **Google Satelit** —
-> pilih dari kontrol layer kanan atas peta.
+> Basemap bawaan **Esri World Imagery** (satelit) sesuai JUKNIS; opsi
+> **Esri World Street Map** tersedia di layer-control peta (gratis, tanpa
+> API key — bukan Google, agar bebas batasan ToS).
 
 ## Alur kerja
 
-Sidebar berisi panel **Profil** + 5 konten (Tapak Proyek, Titik Pantau,
-Titik Kelola, Area Pantau, Area Kelola); setiap konten bisa dibuka-tutup
-(accordion). Layout responsif — di HP sidebar jadi drawer.
+Stepper 4 langkah: **Profil → Gambar → Validasi → Ekspor**.
 
 1. **Profil** — isi Pemrakarsa, Kegiatan, Tahun, Provinsi, Kabupaten/
-   Kecamatan/Desa, Tipe Dokumen. Bisa terisi otomatis dari mode
-   **Info Wilayah**: klik peta → kartu detail administrasi (desa, kecamatan,
-   kab/kota, provinsi, kode wilayah) → terapkan ke profil.
-2. **Isi konten** — buka salah satu konten, pilih mode input lewat tombol
-   ikon:
-   - **Tambah/Gambar**: titik = klik peta; area = klik tiap sudut,
-     double-click/Enter selesai, Backspace = undo vertex, luas live dalam Ha.
-   - **Paste**: bulk koordinat dari Excel, ada tab konverter DD/DMS/DMM/UTM.
-   - **Impor**: SHP/GeoJSON/KML/CSV (file lama, ZIP quartet, atau CSV kolom
-     lon,lat / WKT — CRS terbaca dari .prj).
-   Label fitur hanya muncul saat hover (tidak menumpuk di peta). Edit inline
-   KODE/Keterangan di tabel data; titik bisa diseret langsung di peta.
-3. **Validasi** — cek paket siap upload sebelum ekspor; masalah bisa diklik
-   untuk zoom ke fitur yang bermasalah. Tombol ekspor per konten terkunci
-   selama masih ada error validasi.
-4. **Ekspor** — tiap konten punya pill ekspor **ZIP** (SHP siap upload ke
-   amdalnet) dan **PDF** (arsip/preview); footer **Ekspor Semua Konten**
-   mengunduh `amdalnet_mapper.zip` (5 folder konten, tiap folder berisi
-   ZIP + PDF).
+   Kecamatan/Desa, Tipe Dokumen. Bisa terisi otomatis dari pencarian wilayah.
+2. **Gambar** — pilih layer, lalu Tambah Titik (klik peta), Gambar Area
+   (klik sudut, double-click/Enter selesai, Backspace = undo vertex, luas
+   live dalam Ha), Paste Koordinat (bulk dari Excel, ada tab konverter
+   DD/DMS/DMM/UTM), atau Impor SHP/GeoJSON/CSV (file lama, ZIP quartet,
+   atau CSV kolom lon,lat / WKT — CRS terbaca dari .prj).
+   - **Info Wilayah**: klik peta → kartu detail administrasi (desa,
+     kecamatan, kab/kota, provinsi, kode wilayah) → terapkan ke profil.
+3. **Validasi** — cek paket siap upload; masalah bisa diklik untuk zoom ke
+   fitur yang bermasalah.
+4. **Ekspor** — dialog terpadu: ZIP SHP per layer (+ slot upload AMDALNET),
+   PDF peta per layer, ekspor semua, atau ekspor ke folder proyek.
 
 Lengkapi **KODE** & **Keterangan** di tabel data (ada bulk KODE berurutan,
 filter/search). Mode gelap/terang: tombol matahari/bulan di header.
@@ -53,14 +45,30 @@ Proyek autosave di browser (indikator "Tersimpan otomatis"); tombol
 | Geometri .shp | lon/lat derajat | **meter Web Mercator** (EPSG:3857) | lon/lat derajat |
 | Shape type | POINT (1) | **POLYGONZ (15, Z=0)** | POLYGON (5) |
 | .prj | EPSG:4326 GEOGCS WGS84 (145B, byte-identik template) | Web Mercator (425B, byte-identik template) | EPSG:4326 GEOGCS WGS84 |
-| Skema DBF | 9 field; PEMRAKARSA C50, KEGIATAN C50 | 9 field; PEMRAKARSA C100, KEGIATAN C254 | **8 field**; PEMRAKARSA C80, LUAS N(24,15) |
-| LAYER | "Titik Pemantauan" / "Titik Pengelolaan" | "Area Pemantauan" / "Area Pengelolaan" | "Tapak Proyek" |
+| Skema DBF | **9 field template** (ID terakhir); PEMRAKARSA C50, KEGIATAN C50 | **9 field template** (ID terakhir); PEMRAKARSA C100, KEGIATAN C254 | **8 field**; PEMRAKARSA C254, LUAS N(24,15) |
+| LAYER | "Titik Pemantauan" / "Titik Pengelolaan" | "Area Pemantauan" / "Area Pengelolaan" | "TAPAK PROYEK" |
 | TIPE_DOKUM | "Amdal" / "UKL-UPL" (di-enforce) | sama | — (tidak ada) |
+| ID | field `ID` N10, diisi pengguna (default 0) | field `ID` N10, diisi pengguna (default 0) | field `id` N10, diisi pengguna (default 0) |
 
-Skema & geometri Tapak Proyek mengikuti **Panduan Pembuatan Peta Polygon
-v2.5 (Juli 2024)** — sengaja berbeda dari layer Area. Field LUAS tidak
-ditulis ke SHP (virtual field QGIS: `$area/10000` = hektar); luas
-ditampilkan di aplikasi dalam hektar.
+Skema Titik & Area mengikuti **template DBF amdalnet** (9 field, urutan
+`PEMRAKARSA, KEGIATAN, TAHUN, PROVINSI, KETERANGAN, TIPE_DOKUM, KODE, LAYER, ID`),
+bukan urutan 8 kolom JUKNIS. File QGIS yang berhasil tampil di amdalnet memakai
+susunan ini, dan join-nya tidak bergantung pada nilai `ID` — `ID = 0` pada semua
+fitur tetap terbaca benar. `ID` kini dapat diisi per fitur di UI (hanya angka,
+maks. 10 digit); nilai kosong/invalid ditulis `0` dan hanya memunculkan
+peringatan.
+
+Skema Tapak Proyek mengikuti file yang **diterima amdalnet** (hardi.*),
+yaitu 7 field + `LUAS` N(24,15). Kolom `LUAS` diisi luas ellipsoidal WGS84
+dalam hektar (setara `$area/10000` QGIS) dan **ditulis ke DBF** — keputusan
+sadar setelah amdalnet menerima field tambahan ini. Field `id` juga diisi
+pengguna dengan aturan yang sama (default 0).
+
+**Index .shx** menulis offset record dalam 16-bit word dan **ikut menghitung
+header record 8 byte** (offset 100, 128, 156, …). Sebelumnya offset meleset ke
+tengah record sebelumnya sehingga ArcGIS/amdalnet menempelkan atribut ke
+geometri yang salah (pembaca sekuensial seperti shpjs tidak menampilkan gejala
+ini). Bug itu sudah diperbaiki dan dijaga `verifyShpIndex`.
 
 Nilai LAYER selalu mengikuti JUKNIS resmi (daftarnya tampil di panel Profil).
 Nama file ZIP/DBF tapak mengikuti template: `tapak-proyek.zip` (huruf kecil).

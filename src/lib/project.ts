@@ -17,6 +17,8 @@ export interface Feature {
   /** Atribut spesifik per fitur; field profil diwarisi saat export. */
   kode: string
   keterangan: string
+  /** Kolom `ID` (titik/area) / `id` (tapak) — diisi pengguna, default "0". */
+  dbId: string
   createdAt: string
 }
 
@@ -67,6 +69,7 @@ export function makeFeature(
   geom: Geom,
   kode = '',
   keterangan = '',
+  dbId = '0',
 ): Feature {
   return {
     id: newFeatureId(),
@@ -74,8 +77,15 @@ export function makeFeature(
     geom,
     kode,
     keterangan,
+    dbId: normalizeDbId(dbId),
     createdAt: new Date().toISOString(),
   }
+}
+
+/** ID DBF hanya angka (N10). Nilai kosong/invalid → "0" agar tidak jadi blank. */
+export function normalizeDbId(v: unknown): string {
+  const s = String(v ?? '').trim()
+  return /^\d{1,10}$/.test(s) ? s : '0'
 }
 
 export function featuresOf(project: Project, layer: LayerKey): Feature[] {
@@ -89,9 +99,9 @@ export function effectiveLayerAttr(layer: LayerKey): string {
 
 /**
  * Atribut untuk satu fitur.
- * Layer biasa: 9 field (profil + kode/keterangan).
- * Tapak Proyek: 8 field byte-identik template amdalnet — TANPA KODE &
- * TIPE_DOKUM, dengan KETERANGAN dan LUAS (hektar, ellipsoidal WGS84).
+ * Titik/Area: 9 field (profil + kode/keterangan + `ID` manual, default 0).
+ * Tapak Proyek: 8 field — TANPA KODE & TIPE_DOKUM, dengan KETERANGAN dan
+ * LUAS (hektar, ellipsoidal WGS84), `id` manual (default 0).
  */
 export function attrsForFeature(
   project: Project,
@@ -99,7 +109,7 @@ export function attrsForFeature(
 ): AttrRecord {
   if (feature.layer === 'tapak') {
     return {
-      id: 0,
+      id: normalizeDbId(feature.dbId),
       PEMRAKARSA: project.pemrakarsa,
       KEGIATAN: project.kegiatan,
       TAHUN: project.tahun === '' ? '' : String(project.tahun),
@@ -118,7 +128,7 @@ export function attrsForFeature(
     TIPE_DOKUM: project.tipeDokumen,
     KODE: feature.kode,
     LAYER: effectiveLayerAttr(feature.layer),
-    ID: 0,
+    ID: normalizeDbId(feature.dbId),
   }
 }
 
@@ -174,32 +184,25 @@ export function validateProject(project: Project): Issue[] {
         message: `Kegiatan ${byteLen(p.kegiatan)} byte > lebar field ${def.fileName} (${kegField.length})`,
       })
     }
-    // Panduan Tapak v2.5 tidak mengenal KODE — lewati untuk layer tapak
+    // KODE boleh kosong / berulang (sengaja: satu KODE bisa dipakai beberapa
+    // fitur) — hanya peringatan, tidak memblokir ekspor.
+    // Panduan Tapak v2.5 tidak mengenal KODE — lewati untuk layer tapak.
     if (f.layer !== 'tapak' && !f.kode.trim()) {
-      issues.push({ level: 'error', layer: f.layer, featureId: f.id, message: 'KODE belum diisi' })
+      issues.push({ level: 'warning', layer: f.layer, featureId: f.id, message: 'KODE belum diisi' })
     }
     if (!f.keterangan.trim()) {
-      issues.push({ level: 'error', layer: f.layer, featureId: f.id, message: 'Keterangan belum diisi' })
+      issues.push({ level: 'warning', layer: f.layer, featureId: f.id, message: 'Keterangan belum diisi' })
     }
-  }
-
-  // KODE harus unik dalam satu layer (template amdalnet: U1, U2, ... — tidak berulang)
-  for (const def of LAYERS) {
-    const seen = new Map<string, string>()
-    for (const f of featuresOf(p, def.key)) {
-      const k = f.kode.trim().toUpperCase()
-      if (!k) continue
-      const prev = seen.get(k)
-      if (prev !== undefined && prev !== f.id) {
-        issues.push({
-          level: 'warning',
-          layer: def.key,
-          featureId: f.id,
-          message: `KODE "${f.kode.trim()}" dipakai lebih dari sekali di ${def.fileName}`,
-        })
-      } else {
-        seen.set(k, f.id)
-      }
+    // ID harus angka maks 10 digit (DBF N10). Kosong/invalid → warning; ekspor
+    // tetap jalan (ditulis sebagai 0).
+    const rawId = String(f.dbId ?? '').trim()
+    if (rawId !== '' && !/^\d{1,10}$/.test(rawId)) {
+      issues.push({
+        level: 'warning',
+        layer: f.layer,
+        featureId: f.id,
+        message: 'ID harus angka maksimal 10 digit',
+      })
     }
   }
 
@@ -281,6 +284,7 @@ export function sanitizeProject(raw: unknown): Project {
       geom,
       kode: typeof fr.kode === 'string' ? fr.kode : '',
       keterangan: typeof fr.keterangan === 'string' ? fr.keterangan : '',
+      dbId: normalizeDbId(fr.dbId),
       createdAt: typeof fr.createdAt === 'string' ? fr.createdAt : new Date().toISOString(),
     })
   }
@@ -307,7 +311,7 @@ export function layerToCsv(project: Project, layer: LayerKey): string {
   const feats = featuresOf(project, layer)
   const def = LAYER_BY_KEY[layer]
   const cols = def.fields.map((f) => f.name)
-  const header = ['id', 'lon', 'lat', ...cols]
+  const header = ['feature_id', 'lon', 'lat', ...cols]
   const rows = feats.map((f) => {
     const a = attrsForFeature(project, f)
     let lon = ''

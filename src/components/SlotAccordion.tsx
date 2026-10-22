@@ -21,6 +21,7 @@ import {
   Upload,
   Wand2,
   X,
+  ZoomIn,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,10 +44,12 @@ interface Props {
   onOpenImport: () => void
   selectedId: string | null
   onSelect: (id: string | null) => void
+  /** Zoom eksplisit ke satu fitur (pemisahan dari selection — W1). */
+  onZoomToFeature: (id: string) => void
   editingId: string | null
   onStartEdit: (id: string) => void
   onCancelEdit: () => void
-  onSaveEdit: (id: string, kode: string, keterangan: string) => void
+  onSaveEdit: (id: string, kode: string, keterangan: string, dbId: string) => void
   onDelete: (id: string) => void
   onExportZip: () => void
   onExportPdf: () => void
@@ -63,17 +66,25 @@ export default function SlotAccordion(p: Props) {
   const isTapak = def.key === 'tapak'
   const [filter, setFilter] = useState('')
   const [bulkPrefix, setBulkPrefix] = useState('')
-  const [draft, setDraft] = useState<{ id: string; kode: string; keterangan: string } | null>(null)
+  const [draft, setDraft] = useState<{
+    id: string
+    kode: string
+    keterangan: string
+    dbId: string
+  } | null>(null)
 
   const q = filter.trim().toLowerCase()
   const visible = q
     ? p.features.filter(
-        (f) => f.kode.toLowerCase().includes(q) || f.keterangan.toLowerCase().includes(q),
+        (f) =>
+          f.kode.toLowerCase().includes(q) ||
+          f.keterangan.toLowerCase().includes(q) ||
+          f.dbId.includes(q),
       )
     : p.features
 
   const startEdit = (f: Feature) => {
-    setDraft({ id: f.id, kode: f.kode, keterangan: f.keterangan })
+    setDraft({ id: f.id, kode: f.kode, keterangan: f.keterangan, dbId: f.dbId })
     p.onStartEdit(f.id)
   }
   const cancelEdit = () => {
@@ -82,7 +93,7 @@ export default function SlotAccordion(p: Props) {
   }
   const saveEdit = () => {
     if (!draft) return
-    p.onSaveEdit(draft.id, draft.kode.trim(), draft.keterangan.trim())
+    p.onSaveEdit(draft.id, draft.kode.trim(), draft.keterangan.trim(), draft.dbId.trim())
     setDraft(null)
   }
 
@@ -144,18 +155,33 @@ export default function SlotAccordion(p: Props) {
               />
             </div>
 
-            {/* daftar fitur */}
+            {/* daftar fitur (B8: empty state dengan aksi langsung, bukan cuma teks) */}
             {p.features.length === 0 ? (
-              <p className="text-muted-foreground border-t border-border py-3 text-xs">
-                Belum ada {def.label.toLowerCase()} — tambah lewat peta, paste, atau impor.
-              </p>
+              <div className="border-t border-border py-3">
+                <p className="text-muted-foreground text-xs">
+                  Belum ada {def.label.toLowerCase()} — tambah lewat peta, paste, atau impor.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-7 w-full text-xs"
+                  onClick={p.onToggleDraw}
+                >
+                  {isPoint ? (
+                    <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                  ) : (
+                    <Pen className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Mulai menggambar di peta
+                </Button>
+              </div>
             ) : (
               <>
                 {p.features.length > 5 && (
                   <Input
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Cari KODE / keterangan…"
+                    placeholder="Cari ID / KODE / keterangan…"
                     className="mb-1 h-7 text-xs"
                   />
                 )}
@@ -179,6 +205,20 @@ export default function SlotAccordion(p: Props) {
                           maxLength={254}
                           className="mb-1.5 h-7 text-xs"
                         />
+                        <Input
+                          value={draft.dbId}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              dbId: e.target.value.replace(/\D/g, '').slice(0, 10),
+                            })
+                          }
+                          placeholder="ID (default 0)"
+                          inputMode="numeric"
+                          maxLength={10}
+                          className="mb-1.5 h-7 font-mono text-xs"
+                          title="Kolom ID pada DBF — angka, default 0"
+                        />
                         {isPoint && (
                           <p className="text-muted-foreground mb-1.5 text-[11px]">
                             Seret titik di peta untuk memindahkan lokasinya.
@@ -201,25 +241,45 @@ export default function SlotAccordion(p: Props) {
                         </div>
                       </div>
                     ) : (
-                      <div key={f.id} className="border-t border-border py-2">
+                      <div key={f.id} className="feature-row border-t border-border py-2">
                         <div className="flex items-start justify-between gap-2">
                           <button
                             type="button"
                             className="min-w-0 flex-1 text-left"
                             onClick={() => p.onSelect(f.id === p.selectedId ? null : f.id)}
-                            title="Klik untuk zoom ke fitur"
+                            title="Klik untuk pilih fitur (kamera tetap; double-klik marker / tombol zoom untuk memindahkan kamera)"
                           >
-                            {!isTapak && (
-                              <div className="font-mono text-[13px] font-medium tabular-nums">
-                                {f.kode || <span className="text-muted-foreground">—</span>}
-                              </div>
-                            )}
+                            <div className="font-mono text-[13px] font-medium tabular-nums">
+                              <span
+                                className="text-muted-foreground mr-1 text-[10px] font-normal"
+                                title="Kolom ID pada DBF"
+                              >
+                                ID
+                              </span>
+                              {f.dbId || '0'}
+                              {!isTapak && (
+                                <span className="ml-2">
+                                  {f.kode || (
+                                    <span className="text-muted-foreground">—</span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
                             <div className="text-muted-foreground truncate text-xs">
                               {f.keterangan || '—'}
                               {!isPoint && ` · ${formatArea(featureArea(f))}`}
                             </div>
                           </button>
                           <div className="flex flex-none items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground h-7 w-7"
+                              onClick={() => p.onZoomToFeature(f.id)}
+                              title="Zoom peta ke fitur ini"
+                            >
+                              <ZoomIn className="h-3.5 w-3.5" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -250,7 +310,7 @@ export default function SlotAccordion(p: Props) {
                     </p>
                   )}
                 </div>
-                {/* KODE berurutan */}
+                {/* KODE berurutan (W8: isi seluruh layer, bukan hanya hasil filter) */}
                 {!isTapak && (
                   <div className="flex gap-1.5 pt-1">
                     <Input
@@ -264,14 +324,14 @@ export default function SlotAccordion(p: Props) {
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs"
-                      disabled={!bulkPrefix.trim() || visible.length === 0}
+                      disabled={!bulkPrefix.trim() || p.features.length === 0}
                       onClick={() => {
-                        p.onBulkKode(bulkPrefix.trim(), visible.map((f) => f.id))
+                        p.onBulkKode(bulkPrefix.trim(), p.features.map((f) => f.id))
                         setBulkPrefix('')
                       }}
                     >
                       <Wand2 className="mr-1 h-3.5 w-3.5" />
-                      Isi KODE ({visible.length})
+                      Isi KODE ({p.features.length})
                     </Button>
                   </div>
                 )}
@@ -286,7 +346,9 @@ export default function SlotAccordion(p: Props) {
                   variant="outline"
                   size="sm"
                   className="h-7 rounded-full px-3 text-xs"
-                  disabled={p.exporting || p.features.length === 0}
+                  // W5/W6: tombol ekspor mati saat ada error validasi layer
+                  // (App tetap menjaga gate — double safeguard, UX jelas).
+                  disabled={p.exporting || p.features.length === 0 || p.errorCount > 0}
                   onClick={p.onExportZip}
                   title={
                     p.errorCount > 0
@@ -301,7 +363,7 @@ export default function SlotAccordion(p: Props) {
                   variant="outline"
                   size="sm"
                   className="h-7 rounded-full px-3 text-xs"
-                  disabled={p.exporting || p.features.length === 0}
+                  disabled={p.exporting || p.features.length === 0 || p.errorCount > 0}
                   onClick={p.onExportPdf}
                   title={
                     p.errorCount > 0
@@ -367,7 +429,8 @@ function ModeButton({
       title={title}
       aria-pressed={!!active}
       className={cn(
-        'flex flex-1 flex-col items-center gap-1 rounded-lg border py-2.5 text-xs font-medium transition-colors',
+        // B1/B2: press-scale micro-feedback + transisi properti spesifik.
+        'flex flex-1 flex-col items-center gap-1 rounded-lg border py-2.5 text-xs font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]',
         active
           ? 'border-foreground bg-foreground text-background'
           : 'border-border bg-background hover:bg-muted text-foreground',

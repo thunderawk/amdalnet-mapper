@@ -7,6 +7,10 @@
  *     record header BIG-endian; isi record LITTLE-endian.
  *  2. Nama field DBF maks 10 karakter.
  *  3. Lebar field DBF yang tidak muat -> TRUNCATE SENYAP. Di sini: THROW.
+ *  4. Offset .shx dihitung dalam 16-bit WORD dan WAJIB memuat header record
+ *     8 byte (offset 100, 128, 156, ...). Kalau lupa, ArcGIS/amdalnet membaca
+ *     atribut dari record yang salah; pembaca sekuensial (shpjs) tidak terlihat.
+ *     Dijaga oleh verifyShpIndex().
  *
  * Format per layer (keputusan terverifikasi vs template asli amdalnet,
  * kecuali tapak yang mengikuti Panduan Tapak Proyek v2.5):
@@ -296,17 +300,12 @@ export function buildShapefile(
   const shpW = new W(totalBytes)
   writeHeader(shpW, shapeType, bbox)
   shpW.view.setInt32(24, totalBytes / 2, false) // panjang file (kata), BE
-  let offsetWords = 50
-  const frames: { body: number[] }[] = []
   bodies.forEach((body, i) => {
     const words = body.length / 2
     shpW.i32be(i + 1) // record number, BE
     shpW.i32be(words) // content length (kata), BE
     shpW.put(body)
-    frames.push({ body })
-    offsetWords += words
   })
-  void offsetWords
 
   // .shx
   const shxSize = 100 + 8 * bodies.length
@@ -318,7 +317,11 @@ export function buildShapefile(
     const words = b.length / 2
     shxW.i32be(off)
     shxW.i32be(words)
-    off += words
+    // Setiap record .shp diawali 8 byte header (record number + content
+    // length) — WAJIB ikut dihitung. Tanpa ini offset .shx meleset ke
+    // tengah record sebelumnya dan ArcGIS/amdalnet membaca atribut dari
+    // record yang salah.
+    off += 4 + words
   }
 
   const records = features.map((f) => f.attrs)
@@ -347,6 +350,43 @@ export function verifyShpBytes(bytes: Uint8Array, expectType: number): void {
   if (stype !== expectType) throw new Error(`shape type ${stype} != ${expectType}`)
 }
 
+/**
+ * Pastikan setiap entri .shx menunjuk ke record .shp yang benar.
+ * Offset .shx dihitung dalam 16-bit word dari awal file dan WAJIB memuat
+ * header record 8 byte. Kesalahan di sini tidak terlihat oleh pembaca
+ * sekuensial (mis. shpjs) tetapi membuat ArcGIS/amdalnet menempelkan
+ * atribut ke geometri yang salah.
+ */
+export function verifyShpIndex(shp: Uint8Array, shx: Uint8Array, expectType: number): void {
+  verifyShpBytes(shp, expectType)
+  verifyShpBytes(shx, expectType)
+  const sv = new DataView(shp.buffer, shp.byteOffset, shp.byteLength)
+  const xv = new DataView(shx.buffer, shx.byteOffset, shx.byteLength)
+  const n = (shx.length - 100) / 8
+  if (!Number.isInteger(n)) throw new Error(`bad .shx size ${shx.length}`)
+  let prevEnd = 100
+  for (let i = 0; i < n; i++) {
+    const off = xv.getInt32(100 + i * 8, false) * 2
+    const len = xv.getInt32(104 + i * 8, false) * 2
+    if (off !== prevEnd) {
+      throw new Error(`.shx record ${i + 1}: offset ${off} != expected ${prevEnd}`)
+    }
+    if (off + 8 + len > shp.length) {
+      throw new Error(`.shx record ${i + 1}: offset ${off} + ${len} bytes past EOF`)
+    }
+    const recNo = sv.getInt32(off, false)
+    const recLen = sv.getInt32(off + 4, false) * 2
+    if (recNo !== i + 1) throw new Error(`.shp record ${i + 1}: header says ${recNo}`)
+    if (recLen !== len) throw new Error(`.shx record ${i + 1}: length ${len} != .shp ${recLen}`)
+    const stype = sv.getInt32(off + 8, true)
+    if (stype !== expectType) throw new Error(`.shp record ${i + 1}: type ${stype}`)
+    prevEnd = off + 8 + len
+  }
+  if (prevEnd !== shp.length) {
+    throw new Error(`.shp has ${shp.length - prevEnd} trailing bytes after last indexed record`)
+  }
+}
+
 export function buildAndVerify(
   layerKind: LayerKind,
   features: { geom: Geom; attrs: AttrRecord }[],
@@ -354,7 +394,6 @@ export function buildAndVerify(
 ): ShapefileSet {
   const set = buildShapefile(layerKind, features, fields)
   const expectType = layerKind === 'titik' ? 1 : layerKind === 'tapak' ? 5 : 15
-  verifyShpBytes(set.shp, expectType)
-  verifyShpBytes(set.shx, expectType)
+  verifyShpIndex(set.shp, set.shx, expectType)
   return set
 }

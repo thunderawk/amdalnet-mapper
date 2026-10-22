@@ -18,6 +18,8 @@ export interface ImportedFeature {
   geom: Geom
   kode: string
   keterangan: string
+  /** Kolom ID sumber (jika ada); kosong → diisi "0" saat masuk proyek. */
+  dbId: string
 }
 
 export type ImportGeometryKind = 'point' | 'polygon'
@@ -210,6 +212,7 @@ function pickAttr(props: Record<string, unknown> | null, keys: string[]): string
 
 const KODE_KEYS = ['KODE', 'kode', 'code', 'ID_TITIK', 'no']
 const KET_KEYS = ['KETERANGAN', 'keterangan', 'desc', 'description', 'ket', 'nama', 'name']
+const ID_KEYS = ['ID', 'id', 'fid', 'objectid', 'object_id']
 
 // ── parser per format ───────────────────────────────────────────────────────
 
@@ -236,7 +239,8 @@ function parseGeoJSONText(
     const geoms = geomFromGeoJSON(f.geometry, conv, geometryKind)
     const kode = pickAttr(f.properties, KODE_KEYS)
     const ket = pickAttr(f.properties, KET_KEYS)
-    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket })
+    const dbId = pickAttr(f.properties, ID_KEYS)
+    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket, dbId })
   }
   if (out.length === 0) throw new Error('Tidak ada geometri yang bisa diimpor')
   return out
@@ -265,7 +269,8 @@ async function parseShpBuffers(
     const geoms = geomFromGeoJSON(f.geometry, conv, geometryKind)
     const kode = pickAttr(f.properties, KODE_KEYS)
     const ket = pickAttr(f.properties, KET_KEYS)
-    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket })
+    const dbId = pickAttr(f.properties, ID_KEYS)
+    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket, dbId })
   }
   if (out.length === 0) throw new Error('Shapefile tidak memiliki geometri yang bisa diimpor')
   // fallback: tanpa .prj & koordinat di luar rentang derajat → meter Web Mercator
@@ -312,6 +317,7 @@ function parseCsvText(text: string, geometryKind: ImportGeometryKind): ImportedF
   const iWkt = header.findIndex((h) => h === 'wkt' || h === 'geom' || h === 'geometry')
   const iKode = idx(KODE_KEYS)
   const iKet = idx(KET_KEYS)
+  const iId = idx(ID_KEYS)
 
   const out: ImportedFeature[] = []
   for (let li = 1; li < lines.length; li++) {
@@ -339,7 +345,8 @@ function parseCsvText(text: string, geometryKind: ImportGeometryKind): ImportedF
     const geoms = geomFromGeoJSON(geom, (p) => p, geometryKind)
     const kode = iKode >= 0 ? (cols[iKode] ?? '').trim() : ''
     const ket = iKet >= 0 ? (cols[iKet] ?? '').trim() : ''
-    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket })
+    const dbId = iId >= 0 ? (cols[iId] ?? '').trim() : ''
+    for (const g of geoms) out.push({ geom: g, kode, keterangan: ket, dbId })
   }
   if (out.length === 0) throw new Error('Tidak ada baris koordinat valid di CSV')
   return out
@@ -428,7 +435,8 @@ export async function importFiles(
         const geoms = geomFromGeoJSON(f.geometry, (p) => p, geometryKind)
         const kode = pickAttr(f.properties, KODE_KEYS)
         const ket = pickAttr(f.properties, KET_KEYS)
-        for (const g of geoms) out.push({ geom: g, kode, keterangan: ket })
+        const dbId = pickAttr(f.properties, ID_KEYS)
+        for (const g of geoms) out.push({ geom: g, kode, keterangan: ket, dbId })
       }
       if (out.length === 0) throw new Error('Shapefile tidak memiliki geometri')
       // fallback: tanpa .prj & koordinat di luar rentang derajat → meter Web Mercator
