@@ -3,7 +3,7 @@
  * Diisi sekali, diwarisi ke semua fitur saat ekspor.
  */
 import { useState } from 'react'
-import { CheckCircle2, ChevronDown, Pencil, TriangleAlert } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Pencil, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,7 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { LAYERS, TIPE_DOKUM_OPTIONS } from '@/lib/layers'
 import { effectiveLayerAttr } from '@/lib/project'
-import type { Project } from '@/lib/project'
+import type { Issue, Project } from '@/lib/project'
 
 export const PROVINSI_LIST = [
   'Aceh', 'Sumatera Utara', 'Sumatera Barat', 'Riau', 'Kepulauan Riau',
@@ -46,6 +46,10 @@ interface Props {
   onChange: (patch: Partial<Project>) => void
   open: boolean
   onToggle: () => void
+  /** W2: error profil diproseskan di baris Profil (bukan tiap layer). */
+  errorCount: number
+  issues: Issue[]
+  onLocateIssue: (issue: Issue) => void
 }
 
 const ROWS: [string, (p: Project) => string][] = [
@@ -56,7 +60,15 @@ const ROWS: [string, (p: Project) => string][] = [
   ['Tipe Dokumen', (p) => p.tipeDokumen],
 ]
 
-export default function ProfileAccordion({ project, onChange, open, onToggle }: Props) {
+export default function ProfileAccordion({
+  project,
+  onChange,
+  open,
+  onToggle,
+  errorCount,
+  issues,
+  onLocateIssue,
+}: Props) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const complete = !!(project.pemrakarsa && project.kegiatan && project.tahun && project.provinsi)
 
@@ -70,7 +82,11 @@ export default function ProfileAccordion({ project, onChange, open, onToggle }: 
       >
         <span className="h-2 w-2 flex-none rounded-full bg-foreground/30" aria-hidden />
         <span className="flex-1 text-[13px] font-medium">Profil Proyek</span>
-        {complete ? (
+        {errorCount > 0 ? (
+          <span className="bg-destructive text-destructive-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
+            {errorCount}
+          </span>
+        ) : complete ? (
           <CheckCircle2 className="h-4 w-4 flex-none text-emerald-600 dark:text-emerald-500" />
         ) : (
           <TriangleAlert className="h-4 w-4 flex-none text-amber-500" />
@@ -107,6 +123,26 @@ export default function ProfileAccordion({ project, onChange, open, onToggle }: 
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               Ubah Profil
             </Button>
+            {/* W2: error profil ditampilkan di sini (bukan di tiap layer) */}
+            {issues.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {issues.map((iss, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onLocateIssue(iss)}
+                    className="text-muted-foreground hover:text-foreground flex w-full items-start gap-1.5 rounded px-1 py-1 text-left text-xs"
+                  >
+                    {iss.level === 'error' ? (
+                      <AlertCircle className="text-destructive mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    )}
+                    <span className="flex-1">{iss.message}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

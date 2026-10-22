@@ -1,7 +1,10 @@
 /**
- * Definisi 5 layer AMDALNET + skema atribut 9 field.
+ * Definisi 5 layer AMDALNET + skema atribut.
  *
- * Skema & lebar field: identik template asli amdalnet (JUKNIS hlm.16/18).
+ * Titik & Area: PERSIS template DBF amdalnet (9 field, termasuk `ID` di akhir;
+ * urutan `... KETERANGAN, TIPE_DOKUM, KODE, LAYER, ID`). JUKNIS hlm.16/18
+ * mendaftar 8 kolom yang diisi pengguna; `ID` adalah kolom template yang juga
+ * boleh diisi manual (default 0) agar layout DBF dikenali amdalnet.
  * CRS & shape type per layer: replikasi template asli (keputusan terverifikasi).
  * Nilai atribut LAYER selalu mengikuti JUKNIS resmi (untuk tapak: Panduan
  * Tapak Proyek v2.5) — tidak ada varian template.
@@ -35,7 +38,7 @@ export interface LayerDef {
   fill: string
 }
 
-// Skema field — urutan & lebar PERSIS template.
+// Skema field — urutan & lebar PERSIS template (9 field, `ID` di akhir).
 const TITIK_FIELDS: DbfField[] = [
   { name: 'PEMRAKARSA', type: 'C', length: 50, decimals: 0 },
   { name: 'KEGIATAN', type: 'C', length: 50, decimals: 0 },
@@ -49,15 +52,16 @@ const TITIK_FIELDS: DbfField[] = [
 ]
 
 /**
- * Skema atribut TAPAK PROYEK — BYTE-IDENTIK dengan template SHP tapak yang
- * diunduh dari amdalnet (tapak-proyek.*). 8 field, urutan persis:
- * id N(10,0), PEMRAKARSA C(80), KEGIATAN C(254), TAHUN C(254),
- * PROVINSI C(254), KETERANGAN C(254), LAYER C(254), LUAS N(24,15, hektar).
- * LUAS = luas ellipsoidal WGS84 (sama dengan QGIS $area), DISIMPAN ke DBF.
+ * Skema atribut TAPAK PROYEK — mengikuti file tapak yang diterima amdalnet
+ * (hardi.*): 7 field + LUAS (8 field total). id N(10,0), PEMRAKARSA C(254),
+ * KEGIATAN C(254), TAHUN C(254), PROVINSI C(254), KETERANGAN C(254),
+ * LAYER C(254), LUAS N(24,15, hektar).
+ * LUAS = luas ellipsoidal WGS84 (sama dengan QGIS $area), DISIMPAN ke DBF
+ * (keputusan pengguna; amdalnet sudah menerima field tambahan ini).
  */
 const TAPAK_FIELDS: DbfField[] = [
   { name: 'id', type: 'N', length: 10, decimals: 0 },
-  { name: 'PEMRAKARSA', type: 'C', length: 80, decimals: 0 },
+  { name: 'PEMRAKARSA', type: 'C', length: 254, decimals: 0 },
   { name: 'KEGIATAN', type: 'C', length: 254, decimals: 0 },
   { name: 'TAHUN', type: 'C', length: 254, decimals: 0 },
   { name: 'PROVINSI', type: 'C', length: 254, decimals: 0 },
@@ -153,10 +157,10 @@ export const LAYERS: LayerDef[] = [
     geometry: 'polygon',
     slot: 'Peta Tapak Proyek',
     fields: TAPAK_FIELDS,
-    // Template SHP tapak dari amdalnet (tapak-proyek.*): nama file huruf
-    // kecil, atribut LAYER = "Tapak Proyek". Skema & geometri (plain Polygon
-    // derajat EPSG:4326) byte-identik template. Lihat src/lib/shp.ts.
-    layerJuknis: 'Tapak Proyek',
+    // File tapak yang diterima amdalnet (hardi.*): nama file huruf kecil,
+    // atribut LAYER = "TAPAK PROYEK", geometri plain Polygon derajat
+    // EPSG:4326. Lihat src/lib/shp.ts.
+    layerJuknis: 'TAPAK PROYEK',
     color: '#7c3aed',
     fill: 'rgba(124,58,237,0.10)',
   },

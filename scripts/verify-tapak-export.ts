@@ -2,9 +2,9 @@
  * Verifikasi end-to-end export TAPAK terhadap template SHP tapak asli dari
  * amdalnet (tapak-proyek.*) — BYTE-LEVEL:
  *  - nama file "tapak-proyek" (huruf kecil, seperti template)
- *  - atribut LAYER = "Tapak Proyek"
+ *  - atribut LAYER = "TAPAK PROYEK"
  *  - geometri plain POLYGON (type 5), koordinat DERAJAT (EPSG:4326)
- *  - skema 8 field persis: id N(10,0), PEMRAKARSA C(80), KEGIATAN C(254),
+ *  - skema 8 field persis: id N(10,0), PEMRAKARSA C(254), KEGIATAN C(254),
  *    TAHUN C(254), PROVINSI C(254), KETERANGAN C(254), LAYER C(254),
  *    LUAS N(24,15) hektar
  *  - .prj byte-identik template (EPSG:4326, 145B), .cpg UTF-8
@@ -79,7 +79,7 @@ for (let i = 0; i < nFields; i++) {
 console.log('Field DBF:', fields.map((f) => `${f.name}:${f.type}${f.len}.${f.dec}`).join(' '))
 const expect = [
   ['id', 'N', 10, 0],
-  ['PEMRAKARSA', 'C', 80, 0],
+  ['PEMRAKARSA', 'C', 254, 0],
   ['KEGIATAN', 'C', 254, 0],
   ['TAHUN', 'C', 254, 0],
   ['PROVINSI', 'C', 254, 0],
@@ -103,12 +103,12 @@ const rec = (name: string): string => {
   const base = headerLen + offsets[i]
   return String.fromCharCode(...dbf.slice(base, base + fields[i].len)).trim()
 }
-if (rec('LAYER') !== 'Tapak Proyek') fail(`LAYER = "${rec('LAYER')}"`)
+if (rec('LAYER') !== 'TAPAK PROYEK') fail(`LAYER = "${rec('LAYER')}"`)
 if (rec('TAHUN') !== '2026') fail(`TAHUN = "${rec('TAHUN')}"`)
 if (rec('KETERANGAN') !== 'Keterangan contoh') fail('KETERANGAN tidak terbawa')
 const luas = parseFloat(rec('LUAS'))
 if (!(luas > 0 && luas < 100)) fail(`LUAS = "${rec('LUAS')}" tidak masuk akal (hektar)`)
-ok(`LAYER = "Tapak Proyek", TAHUN = "2026", LUAS = ${rec('LUAS')} ha`)
+ok(`LAYER = "TAPAK PROYEK", TAHUN = "2026", LUAS = ${rec('LUAS')} ha`)
 
 // ── cek 5: shape type 5, derajat ──
 const shp = new Uint8Array(await zip.files['tapak-proyek.shp'].async('uint8array'))

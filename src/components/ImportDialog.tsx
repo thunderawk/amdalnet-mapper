@@ -126,6 +126,9 @@ export default function ImportDialog({
                           <td className="w-8 text-right tabular-nums">{i + 1}</td>
                           <td className="font-mono">{coord}</td>
                           <td className="truncate pl-2">
+                            <span className="text-muted-foreground">ID</span>{' '}
+                            <span className="font-mono">{f.dbId || '0'}</span>
+                            {' · '}
                             {f.kode || '—'} {f.keterangan ? `· ${f.keterangan}` : ''}
                           </td>
                         </tr>

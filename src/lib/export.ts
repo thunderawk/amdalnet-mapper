@@ -6,13 +6,48 @@ import JSZip from 'jszip'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import leafletImage from 'leaflet-image'
-import type L from 'leaflet'
-import { buildAndVerify } from './shp'
-import type { AttrRecord } from './shp'
+import L from 'leaflet'
 import { LAYERS, LAYER_BY_KEY } from './layers'
 import type { LayerKey } from './layers'
-import { attrsForFeature, featuresOf, layerToCsv, slugify } from './project'
+import { featuresOf, layerToCsv, slugify } from './project'
 import type { Project } from './project'
+import { assertZipHasDbf, buildLayerZipBytes } from './layer-zip'
+
+export { buildLayerZip, buildLayerZipBytes } from './layer-zip'
+export type { LayerZip } from './layer-zip'
+
+// ── util kamera: fit peta ke geometri layer (D2: PDF per-layer tidak boleh
+// menangkap tampilan yang sama berulang di ekspor bulk). ──
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Fit kamera ke semua fitur layer, tunggu tile termuat, capture, restore. */
+async function pdfForLayer(
+  project: Project,
+  map: LMap,
+  mapEl: HTMLElement,
+  layer: LayerKey,
+): Promise<Blob> {
+  const initial = map.getBounds()
+  const pts: [number, number][] = []
+  for (const f of featuresOf(project, layer)) {
+    if (f.geom.type === 'Point') pts.push([f.geom.c.lat, f.geom.c.lon])
+    else for (const p of f.geom.ring) pts.push([p.lat, p.lon])
+  }
+  if (pts.length > 0) {
+    map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 17 })
+    await sleep(900) // tile layer memuat di posisi baru
+  }
+  try {
+    return await buildLayerPdf(map, mapEl)
+  } finally {
+    try {
+      map.fitBounds(initial, { padding: [30, 30] })
+    } catch {
+      /* restore gagal — abaikan */
+    }
+  }
+}
 
 // ── unduh blob ──────────────────────────────────────────────────────────────
 
@@ -25,31 +60,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
-}
-
-// ── ZIP per layer (quartet SHP, nama file = nama layer) ──────────────────────
-
-export async function buildLayerZip(project: Project, layer: LayerKey): Promise<Blob> {
-  const def = LAYER_BY_KEY[layer]
-  const feats = featuresOf(project, layer)
-  if (feats.length === 0) {
-    throw new Error(`${def.fileName}: belum ada fitur untuk diekspor`)
-  }
-  const set = buildAndVerify(
-    // Tapak Proyek mengikuti Panduan v2.5: plain Polygon DERAJAT (EPSG:4326),
-    // bukan PolygonZ Web Mercator seperti layer Area.
-    layer === 'tapak' ? 'tapak' : def.kind,
-    feats.map((f) => ({ geom: f.geom, attrs: attrsForFeature(project, f) as AttrRecord })),
-    def.fields,
-  )
-  const zip = new JSZip()
-  const n = def.fileName
-  zip.file(`${n}.shp`, set.shp)
-  zip.file(`${n}.shx`, set.shx)
-  zip.file(`${n}.dbf`, set.dbf)
-  zip.file(`${n}.prj`, set.prj)
-  zip.file(`${n}.cpg`, set.cpg)
-  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
 }
 
 // ── capture peta → canvas ───────────────────────────────────────────────────
@@ -209,7 +219,17 @@ export async function buildLayerPdf(
   return pdf.output('blob')
 }
 
-// ── master ZIP: semua paket + PDF + CSV + JSON ──────────────────────────────
+// ── master ZIP siap-upload: semua paket + PDF + CSV + JSON di ROOT ──────────
+// Struktur datar (tanpa folder bersarang):
+//   AMDALNET_<KEGIATAN>_<TAHUN>.zip
+//   ├── Titik Pantau.zip / .pdf / .csv
+//   ├── Titik Kelola.zip / .pdf / .csv
+//   ├── Area Pantau.zip / .pdf / .csv
+//   ├── Area Kelola.zip / .pdf / .csv
+//   ├── tapak-proyek.zip / .pdf / .csv
+//   ├── proyek.json
+//   └── README.txt
+// ZIP di dalamnya dibangun sebagai byte lalu diverifikasi ulang (DBF non-kosong).
 
 export interface ExportAllResult {
   blob: Blob
@@ -236,10 +256,11 @@ export async function exportAll(
       continue
     }
     onProgress?.(`Menyiapkan ${def.fileName}...`)
-    const zipBlob = await buildLayerZip(project, def.key)
-    master.file(`${def.fileName}.zip`, zipBlob)
+    const { bytes, records } = await buildLayerZipBytes(project, def.key)
+    await assertZipHasDbf(bytes, records, def.fileName)
+    master.file(`${def.fileName}.zip`, bytes)
     try {
-      const pdfBlob = await buildLayerPdf(map, mapEl)
+      const pdfBlob = await pdfForLayer(project, map, mapEl, def.key)
       master.file(`${def.fileName}.pdf`, pdfBlob)
     } catch (e) {
       console.warn('PDF gagal untuk', def.fileName, e)
@@ -301,80 +322,4 @@ function buildReadme(
   return lines.join('\n')
 }
 
-// ── ZIP arsip per folder konten: amdalnet_mapper/ ───────────────────────────
-// Struktur (sesuai keputusan desain):
-//   amdalnet_mapper.zip
-//   └── amdalnet_mapper/
-//       ├── tapak_proyek/  → tapak-proyek.zip + tapak-proyek.pdf
-//       ├── titik_kelola/  → ...
-//       └── ...
-// Layer kosong dilewati. Untuk arsip pribadi; upload ke amdalnet tetap
-// per-layer (ZIP + PDF tiap slot).
 
-export interface FolderZipResult {
-  blob: Blob
-  filename: string
-  included: LayerKey[]
-  skipped: LayerKey[]
-}
-
-export async function exportFolderZip(
-  project: Project,
-  map: LMap,
-  mapEl: HTMLElement,
-  onProgress?: (msg: string) => void,
-): Promise<FolderZipResult> {
-  const root = new JSZip()
-  const base = root.folder('amdalnet_mapper')
-  if (!base) throw new Error('Gagal membuat arsip ZIP')
-  const included: LayerKey[] = []
-  const skipped: LayerKey[] = []
-
-  for (const def of LAYERS) {
-    const feats = featuresOf(project, def.key)
-    if (feats.length === 0) {
-      skipped.push(def.key)
-      continue
-    }
-    onProgress?.(`Menyiapkan ${def.fileName}…`)
-    const dir = base.folder(def.folder)
-    if (!dir) throw new Error(`Gagal membuat folder ${def.folder}`)
-    const zipBlob = await buildLayerZip(project, def.key)
-    dir.file(`${def.fileName}.zip`, zipBlob)
-    try {
-      const pdfBlob = await buildLayerPdf(map, mapEl)
-      dir.file(`${def.fileName}.pdf`, pdfBlob)
-    } catch (e) {
-      console.warn('PDF gagal untuk', def.fileName, e)
-    }
-    included.push(def.key)
-  }
-
-  base.file(
-    'README.txt',
-    [
-      'ARSIP AMDALNET MAPPER — amdalnet_mapper/',
-      '='.repeat(60),
-      '',
-      `Pemrakarsa : ${project.pemrakarsa}`,
-      `Kegiatan   : ${project.kegiatan}`,
-      `Tahun      : ${project.tahun}`,
-      `Provinsi   : ${project.provinsi}`,
-      '',
-      'Tiap folder konten berisi ZIP (SHP) + PDF layer tersebut.',
-      'Untuk upload ke amdalnet.menlhk.go.id, unggah ZIP + PDF',
-      'langsung dari tiap folder ke slot yang sesuai.',
-      '',
-      ...included.map((k) => `  ${LAYERS.find((d) => d.key === k)!.folder}/`),
-      '',
-      skipped.length
-        ? `Konten kosong (tidak diarsipkan): ${skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}`
-        : 'Semua konten memiliki fitur.',
-      '',
-      `Dibuat oleh AMDALNET Mapper pada ${new Date().toLocaleString('id-ID')}`,
-    ].join('\n'),
-  )
-
-  const blob = await root.generateAsync({ type: 'blob', compression: 'DEFLATE' })
-  return { blob, filename: 'amdalnet_mapper.zip', included, skipped }
-}

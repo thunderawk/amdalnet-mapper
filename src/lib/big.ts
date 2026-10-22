@@ -106,57 +106,6 @@ async function queryBig(
   }
 }
 
-const escLike = (s: string) => s.replace(/'/g, "''").toUpperCase()
-
-/**
- * Cari wilayah berdasarkan nama (case-insensitive, LIKE) — TAHAP 1: ringan,
- * tanpa geometri. Panggil fetchWilayahGeometry untuk menggambar batasnya.
- * Cari berurutan: desa → kecamatan → kab/kota, gabungkan hasilnya
- * (maks `limit` per level).
- */
-export async function searchWilayah(
-  q: string,
-  limit = 8,
-): Promise<Wilayah[]> {
-  const query = q.trim()
-  if (query.length < 3) return []
-  const like = `upper(NAMOBJ) LIKE '%${escLike(query)}%'`
-  const levels = ['keldesa', 'kecamatan', 'kabkota'] as WilayahLevel[]
-  // Paralel: server BIG lambat — sekuensial 3 level = 3x waktu tunggu.
-  // Urutan prioritas tetap desa → kecamatan → kab/kota.
-  const settled = await Promise.allSettled(
-    levels.map((level) => queryBig(level, { where: like }, 1, false)),
-  )
-  const out: Wilayah[] = []
-  for (const s of settled) {
-    if (s.status === 'fulfilled') out.push(...s.value.slice(0, limit))
-    if (out.length >= limit) break
-  }
-  return out.slice(0, limit)
-}
-
-/**
- * TAHAP 2: ambil geometri batas satu wilayah (dipanggil saat user memilih
- * hasil pencarian). Mengembalikan objek baru yang rings-nya terisi.
- */
-export async function fetchWilayahGeometry(w: Wilayah): Promise<Wilayah> {
-  if (!w.objectId) throw new Error('ID wilayah tidak valid')
-  const rows = await queryBig(
-    w.level,
-    {
-      where: `OBJECTID = ${w.objectId}`,
-      // sederhanakan geometri di sisi server (~11 m) — jauh lebih ringan,
-      // masih akurat untuk tampilan batas di peta
-      maxAllowableOffset: '0.0001',
-    },
-    1,
-    true,
-  )
-  const full = rows[0]
-  if (!full || full.rings.length === 0) throw new Error('Batas wilayah tidak ditemukan')
-  return full
-}
-
 /** Detail administrasi untuk satu titik (desa → provinsi + kode). */
 export async function reverseGeocode(lon: number, lat: number): Promise<Wilayah | null> {
   const rows = await queryBig('keldesa', {

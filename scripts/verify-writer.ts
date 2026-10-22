@@ -7,7 +7,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { buildAndVerify } from '../src/lib/shp'
-import { LAYERS } from '../src/lib/layers'
+import { LAYERS, LAYER_BY_KEY } from '../src/lib/layers'
 import type { LayerKey } from '../src/lib/layers'
 import type { AttrRecord } from '../src/lib/shp'
 import type { Geom } from '../src/lib/geo'

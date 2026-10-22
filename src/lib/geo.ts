@@ -38,15 +38,30 @@ export function mercToLat(y: number): number {
 
 // ── Luas geodesic (rumus spherical-excess, R=6378137) ───────────────────────
 
-/** Luas polygon (m²). Ring boleh belum tertutup. Deterministik & akurat ~0.1%. */
+/**
+ * Tutup ring (tambahkan vertex pertama di akhir) bila belum tertutup,
+ * tanpa mutasi array masukan. Shoelace/spherical-excess membutuhkan
+ * edge terakhir (vertex terakh → vertex pertama) — tanpa itu luas
+ * sistematis kurang satu edge (D1: LUAS tapak + statistik luas peta).
+ */
+function closeRing(ring: Pt[]): Pt[] {
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  if (!first || !last) return ring
+  if (first.lon !== last.lon || first.lat !== last.lat) return [...ring, first]
+  return ring
+}
+
+/** Luas polygon (m²). Ring boleh belum tertutup (ditutup otomatis). Akurat ~0.1%. */
 export function ringArea(ring: Pt[]): number {
   if (ring.length < 3) return 0
+  const pts = closeRing(ring)
   const R = 6378137
   const rad = Math.PI / 180
   let total = 0
-  for (let i = 0; i < ring.length - 1; i++) {
-    const p1 = ring[i]
-    const p2 = ring[i + 1]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
     total +=
       (p2.lon - p1.lon) * rad *
       (2 + Math.sin(p1.lat * rad) + Math.sin(p2.lat * rad))
@@ -86,11 +101,12 @@ const AUTHALIC_R = WGS84_A * Math.sqrt(AUTHALIC_QP / 2)
 /** Luas polygon (m²) di atas ellipsoid WGS84 — sama dengan QGIS $area. */
 export function ringAreaEllipsoidal(ring: Pt[]): number {
   if (ring.length < 3) return 0
+  const pts = closeRing(ring)
   const rad = Math.PI / 180
   let total = 0
-  for (let i = 0; i < ring.length - 1; i++) {
-    const p1 = ring[i]
-    const p2 = ring[i + 1]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
     const b1 = Math.asin(authalicQ(p1.lat * rad) / AUTHALIC_QP)
     const b2 = Math.asin(authalicQ(p2.lat * rad) / AUTHALIC_QP)
     total += (p2.lon - p1.lon) * rad * (2 + Math.sin(b1) + Math.sin(b2))

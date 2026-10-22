@@ -165,9 +165,10 @@ UTM di JUKNIS).
 Perbaikan yang diterapkan (15 Okt 2026):
 1. **Konflik nilai LAYER untuk layer Area**: teks JUKNIS menulis "Area
    Pengelolaan"/"Area Pemantauan", tapi contoh template unduhan amdalnet menulis
-   "Lokasi Pengelolaan"/"Lokasi Pemantauan" (titik: keduanya sama). Profil kini
-   punya pilihan varian LAYER ("JUKNIS resmi" default / "Template amdalnet"),
-   disimpan di `Project.layerAttrVariant` dan dipakai saat ekspor.
+   "Lokasi Pengelolaan"/"Lokasi Pemantauan" (titik: keduanya sama). Keputusan
+   (18 Okt 2026): **selalu pakai nilai JUKNIS** — tidak ada varian template
+   amdalnet. Nilai yang di-eksport: "Titik Pemantauan", "Titik Pengelolaan",
+   "Area Pemantauan", "Area Pengelolaan", "Tapak Proyek".
 2. **Ekspor per-layer (ZIP & PDF) kini dikunci validasi**: sebelumnya ekspor
    "Export Semua" dikunci tapi ekspor per-layer bisa jalan dengan profil kosong
    (PEMRAKARSA kosong, TAHUN=0) — sekarang error validasi profil/layer aktif

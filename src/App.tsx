@@ -8,12 +8,20 @@ import type L from 'leaflet'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { FolderOpen, Moon, PanelBottom, RotateCcw, Save, Sun } from 'lucide-react'
-import MapPanel from '@/components/MapPanel'
+import MapPanel, { boundsOf } from '@/components/MapPanel'
 import type { AdminPick, DrawMode } from '@/components/MapPanel'
 import SlotSidebar from '@/components/SlotSidebar'
 import type { AccKey } from '@/components/SlotSidebar'
 import PasteDialog from '@/components/PasteDialog'
 import ImportDialog from '@/components/ImportDialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { LAYER_BY_KEY } from '@/lib/layers'
 import type { LayerKey } from '@/lib/layers'
 import type { Geom } from '@/lib/geo'
@@ -25,6 +33,7 @@ import {
   issueCount,
   loadLocal,
   makeFeature,
+  normalizeDbId,
   sanitizeProject,
   saveLocal,
   slugify,
@@ -35,9 +44,10 @@ import {
   buildLayerPdf,
   buildLayerZip,
   downloadBlob,
-  exportFolderZip,
+  exportAll,
 } from '@/lib/export'
 import type { ImportedFeature } from '@/lib/import'
+import { cn } from '@/lib/utils'
 
 export default function App() {
   const { theme, toggle } = useTheme()
@@ -53,6 +63,8 @@ export default function App() {
   const [importSlot, setImportSlot] = useState<LayerKey | null>(null)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
+  // W10: dialog konfirmasi reset proyek (menggantikan window.confirm)
+  const [confirmNewProject, setConfirmNewProject] = useState(false)
   // mode info administrasi
   const [infoMode, setInfoMode] = useState(false)
   const [adminPick, setAdminPick] = useState<AdminPick | null>(null)
@@ -109,7 +121,7 @@ export default function App() {
       ...p,
       features: [
         ...p.features,
-        ...imported.map((f) => makeFeature(layer, f.geom, f.kode, f.keterangan)),
+        ...imported.map((f) => makeFeature(layer, f.geom, f.kode, f.keterangan, f.dbId)),
       ],
     }))
     toast.success(`${imported.length} fitur diimpor ke ${LAYER_BY_KEY[layer].fileName}`)
@@ -170,32 +182,68 @@ export default function App() {
     if (key !== 'profil') setActiveLayer(key)
   }, [])
 
+// ── zoom eksplisit ke satu fitur (perubahan kamera imperatif — W1:
+// selection tunggal tidak lagi memindahkan kamera). ──
+  const zoomToFeature = useCallback((id: string) => {
+    const map = mapRef.current
+    if (!map) return
+    const f = project.features.find((x) => x.id === id)
+    if (!f) return
+    const b = boundsOf([f])
+    if (b) map.fitBounds(b, { padding: [80, 80], maxZoom: 18 })
+  }, [project, mapRef])
+
   // ── validasi per slot ──
+  // W2: badge per layer hanya menghitung error layer-nya sendiri;
+  // error profil (pemrakarsa/kegiatan/tahun/provinsi/tipe) ditampilkan
+  // di baris Profil, bukan di tiap layer kosong. Blok ekspor tetap
+  // memakai totalErrors (profil + semua layer).
   const layerErrorCount = useCallback(
     (layer: LayerKey): number =>
-      issues.filter((i) => i.level === 'error' && (i.layer === 'profil' || i.layer === layer)).length,
+      issues.filter((i) => i.level === 'error' && i.layer === layer).length,
+    [issues],
+  )
+  const profileErrorCount = useCallback(
+    () => issues.filter((i) => i.level === 'error' && i.layer === 'profil').length,
     [issues],
   )
   const layerIssues = useCallback(
     (layer: LayerKey): Issue[] => issues.filter((i) => i.layer === layer),
     [issues],
   )
+  const profileIssues = useCallback(
+    (): Issue[] => issues.filter((i) => i.layer === 'profil'),
+    [issues],
+  )
 
-  const handleLocateIssue = useCallback((issue: Issue) => {
-    if (issue.layer !== 'profil') {
-      setActiveLayer(issue.layer as LayerKey)
-      setOpenAcc(issue.layer as LayerKey)
-    } else {
-      setOpenAcc('profil')
-    }
-    if (issue.featureId) setSelectedId(issue.featureId)
-    setSheetOpen(true)
-  }, [])
+  const handleLocateIssue = useCallback(
+    (issue: Issue) => {
+      if (issue.layer !== 'profil') {
+        setActiveLayer(issue.layer as LayerKey)
+        setOpenAcc(issue.layer as LayerKey)
+      } else {
+        setOpenAcc('profil')
+      }
+      if (issue.featureId) {
+        setSelectedId(issue.featureId)
+        zoomToFeature(issue.featureId)
+      }
+      setSheetOpen(true)
+    },
+    [zoomToFeature],
+  )
 
   // ── ekspor ──
+  // W2/W6: gate per-layer = error layer itu sendiri + error profil
+  // (profil diwarisi ke semua fitur — profil belum lengkap = ZIP tidak valid).
+  const exportGate = useCallback(
+    (layer: LayerKey): number => layerErrorCount(layer) + profileErrorCount(),
+    [layerErrorCount, profileErrorCount],
+  )
+
   const handleExportLayerZip = useCallback(
     async (layer: LayerKey) => {
-      const n = layerErrorCount(layer)
+      const n = exportGate(layer)
       if (n > 0) {
         toast.error(
           `${n} error validasi pada ${LAYER_BY_KEY[layer].fileName} / profil — perbaiki dulu sebelum ekspor ZIP`,
@@ -213,12 +261,12 @@ export default function App() {
         setExporting(null)
       }
     },
-    [project, layerErrorCount],
+    [project, exportGate],
   )
 
   const handleExportLayerPdf = useCallback(
     async (layer: LayerKey) => {
-      const n = layerErrorCount(layer)
+      const n = exportGate(layer)
       if (n > 0) {
         toast.error(
           `${n} error validasi pada ${LAYER_BY_KEY[layer].fileName} / profil — perbaiki dulu sebelum ekspor PDF`,
@@ -228,6 +276,8 @@ export default function App() {
       setExporting(`pdf:${layer}`)
       try {
         if (!mapRef.current || !mapElRef.current) throw new Error('Peta belum siap')
+        // W6: PDF menangkap tampilan peta saat ini — layer aktif otomatis
+        // sudah fitBounds oleh MapPanel saat slot dibuka/dipilih.
         const blob = await buildLayerPdf(mapRef.current, mapElRef.current)
         downloadBlob(blob, `${LAYER_BY_KEY[layer].fileName}.pdf`)
         toast.success(`PDF ${LAYER_BY_KEY[layer].fileName} diunduh`)
@@ -237,14 +287,16 @@ export default function App() {
         setExporting(null)
       }
     },
-    [project, layerErrorCount],
+    [project, exportGate],
   )
 
-  /** Bulk: amdalnet_mapper.zip → 5 folder konten, tiap folder ZIP + PDF. */
+  /** Bulk: satu ZIP datar siap-upload (5 konten di root + PDF/CSV/JSON/README). */
   const handleBulkExport = useCallback(async () => {
-    const { errors } = issueCount(validateProject(project))
+    const errors = validateProject(project).filter((i) => i.level === 'error').length
     if (errors > 0) {
-      toast.error(`Masih ada ${errors} error validasi — perbaiki dulu sebelum ekspor semua`)
+      toast.error(
+        `Masih ada ${errors} error (profil / lebar field) — perbaiki dulu sebelum ekspor semua`,
+      )
       return
     }
     if (!mapRef.current || !mapElRef.current) {
@@ -253,14 +305,14 @@ export default function App() {
     }
     setExporting('all')
     try {
-      const res = await exportFolderZip(project, mapRef.current, mapElRef.current, (msg) =>
+      const res = await exportAll(project, mapRef.current, mapElRef.current, (msg) =>
         toast.info(msg),
       )
       downloadBlob(res.blob, res.filename)
       const skipped = res.skipped.length
         ? ` Konten kosong dilewati: ${res.skipped.map((k) => LAYER_BY_KEY[k].fileName).join(', ')}.`
         : ''
-      toast.success(`amdalnet_mapper.zip diunduh (${res.included.length} konten).${skipped}`)
+      toast.success(`${res.filename} diunduh (${res.included.length} konten).${skipped}`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -289,18 +341,23 @@ export default function App() {
     reader.readAsText(file)
   }, [])
 
-  const handleNewProject = useCallback(() => {
-    if (
-      project.features.length > 0 &&
-      !window.confirm('Buat proyek baru? Semua fitur di sesi ini akan hilang (simpan JSON dulu bila perlu).')
-    ) {
-      return
-    }
+  // W10: aksi reset proyek (dipanggil dari dialog konfirmasi)
+  const startNewProject = useCallback(() => {
     setProject(emptyProject())
     setSelectedId(null)
     setEditingId(null)
+    setConfirmNewProject(false)
     toast.info('Proyek baru dimulai')
-  }, [project])
+  }, [])
+
+  const handleNewProject = useCallback(() => {
+    if (project.features.length > 0) {
+      // W10: dialog desain, bukan window.confirm
+      setConfirmNewProject(true)
+      return
+    }
+    startNewProject()
+  }, [project, startNewProject])
 
   // ── bulk KODE berurutan ──
   const handleBulkKode = useCallback((prefix: string, ids: string[]) => {
@@ -368,11 +425,12 @@ export default function App() {
       onOpenImport={setImportSlot}
       selectedId={selectedId}
       onSelect={setSelectedId}
+      onZoomToFeature={zoomToFeature}
       editingId={editingId}
       onStartEdit={handleStartEdit}
       onCancelEdit={() => setEditingId(null)}
-      onSaveEdit={(id, kode, keterangan) => {
-        updateFeature(id, { kode, keterangan })
+      onSaveEdit={(id, kode, keterangan, dbId) => {
+        updateFeature(id, { kode, keterangan, dbId: normalizeDbId(dbId) })
         setEditingId(null)
       }}
       onDelete={deleteFeature}
@@ -386,6 +444,8 @@ export default function App() {
       totalFeatures={project.features.length}
       totalErrors={totalErrors}
       onBulkExport={handleBulkExport}
+      profileErrorCount={profileErrorCount()}
+      profileIssues={profileIssues()}
     />
   )
 
@@ -403,8 +463,9 @@ export default function App() {
             <PanelBottom className="h-5 w-5" />
           </Button>
           <h1 className="truncate text-[15px] font-semibold tracking-tight">AMDALNET Mapper</h1>
+          {/* W12: indikator autosave selalu terlihat (sebelumnya hidden lg:inline) */}
           {lastSaved && (
-            <span className="text-muted-foreground hidden text-[11px] lg:inline">
+            <span className="text-muted-foreground hidden text-[11px] sm:inline">
               Tersimpan otomatis · {lastSaved}
             </span>
           )}
@@ -419,10 +480,12 @@ export default function App() {
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
+          {/* W11: tombol manajemen proyek (backup/muat/baru) tersedia di semua
+              ukuran layar — bukan hanya ≥sm (mobile-first). */}
           <Button
             size="icon"
             variant="ghost"
-            className="hidden h-8 w-8 sm:inline-flex"
+            className="h-8 w-8"
             onClick={handleSaveJson}
             title="Backup proyek sebagai JSON"
           >
@@ -431,7 +494,7 @@ export default function App() {
           <Button
             size="icon"
             variant="ghost"
-            className="hidden h-8 w-8 sm:inline-flex"
+            className="h-8 w-8"
             onClick={() => fileInputRef.current?.click()}
             title="Muat proyek dari JSON"
           >
@@ -451,7 +514,7 @@ export default function App() {
           <Button
             size="icon"
             variant="ghost"
-            className="hidden h-8 w-8 sm:inline-flex"
+            className="h-8 w-8"
             onClick={handleNewProject}
             title="Proyek baru"
           >
@@ -495,27 +558,41 @@ export default function App() {
             />
           </div>
 
-          {/* bottom sheet — mobile */}
-          {sheetOpen && (
-            <div className="fixed inset-0 z-[1100] md:hidden">
-              <div
-                className="absolute inset-0 bg-black/40"
+          {/* bottom sheet — mobile (B6: slide-in/out; exit tetap smooth —
+              panel selalu dirender, animasi di CSS; `inert` + sr-only menjaga
+              aksesibilitas saat tertutup). */}
+          <div
+            className={cn(
+              'pointer-events-none fixed inset-0 z-[1100] md:hidden',
+              sheetOpen && 'pointer-events-auto',
+            )}
+            aria-hidden={!sheetOpen}
+          >
+            <div
+              className={cn(
+                'sheet-overlay absolute inset-0 bg-black/40',
+                !sheetOpen && 'opacity-0',
+              )}
+              onClick={() => setSheetOpen(false)}
+              aria-hidden
+            />
+            <div
+              className="bg-background border-border sheet-panel absolute inset-x-0 bottom-0 flex h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t"
+              data-closed={!sheetOpen ? 'true' : undefined}
+              inert={!sheetOpen || undefined}
+            >
+              <button
+                type="button"
+                className="flex-none py-2.5"
                 onClick={() => setSheetOpen(false)}
-                aria-hidden
-              />
-              <div className="bg-background border-border absolute inset-x-0 bottom-0 flex h-[62dvh] flex-col overflow-hidden rounded-t-2xl border-t">
-                <button
-                  type="button"
-                  className="flex-none py-2.5"
-                  onClick={() => setSheetOpen(false)}
-                  aria-label="Tutup panel"
-                >
-                  <span className="bg-border mx-auto block h-1 w-10 rounded-full" />
-                </button>
-                <div className="min-h-0 flex-1">{sidebar}</div>
-              </div>
+                aria-label="Tutup panel"
+                tabIndex={sheetOpen ? 0 : -1}
+              >
+                <span className="bg-border mx-auto block h-1 w-10 rounded-full" />
+              </button>
+              <div className="min-h-0 flex-1">{sidebar}</div>
             </div>
-          )}
+          </div>
         </main>
       </div>
 
@@ -539,6 +616,28 @@ export default function App() {
           }}
         />
       )}
+
+      {/* W10: konfirmasi reset proyek — dialog desain sistem, bukan window.confirm */}
+      <Dialog open={confirmNewProject} onOpenChange={(v) => !v && setConfirmNewProject(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Proyek baru?</DialogTitle>
+            <DialogDescription>
+              {project.features.length} fitur di sesi ini akan hilang. Simpan JSON dulu
+              bila perlu — proyek tidak bisa dipulihkan setelah reset.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmNewProject(false)}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={startNewProject}>
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Buat proyek baru
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
